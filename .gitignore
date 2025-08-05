@@ -201,3 +201,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ディレクトリ以下のサブディレクトリ内のDBも除外したい場合：
+myutils/**/*.db
+myutils/**/*.sqlite
+myutils/**/*.sqlite3
