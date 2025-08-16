@@ -1,4 +1,28 @@
 # fetch_youtube_data.py
+# ---------------------------------------------
+# YouTube Data API v3 を使用して動画やチャンネル情報を取得し、
+# ローカルのSQLiteデータベースに保存・キャッシュするクラスを定義。
+#
+# 主な機能：
+# - 動画やチャンネルの情報をAPIから取得
+# - 一度取得した情報はSQLiteに保存し、再利用（キャッシュ機構）
+# - チャンネルの動画一覧を日付指定で取得・保存
+# - 動画の再生時間（duration）をISO 8601から秒に変換して保存
+#
+# 使用ライブラリ：
+# - googleapiclient.discovery: YouTube APIクライアント
+# - isodate: ISO 8601 形式の duration を秒数へ変換
+# - dotenv: .envファイルからAPIキーとDBパスを取得
+#
+# 依存ファイル：
+# - youtube_db.py: SQLiteデータベースの操作クラス
+# - .env: 環境変数（YOUTUBE_API_KEY, YOUTUBE_DB_PATH）を定義
+#
+# 注意事項：
+# - APIキーは.envにてYOUTUBE_API_KEYとして設定しておく必要あり
+# - DBのパスを明示的に指定したい場合は、YouTubeDBインスタンスに引数で渡す
+# ---------------------------------------------
+
 
 import os
 from datetime import datetime
@@ -27,14 +51,16 @@ class YouTubeAPI:
         """動画をDBから取得、なければAPIから取得・保存して返す"""
         with self.db._connect() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM videos WHERE video_id = ?", (video_id,))
+            cursor.execute(
+                "SELECT * FROM videos WHERE video_id = ?", (video_id,))
             result = cursor.fetchone()
 
         if result:
             return result
 
         # APIから取得
-        response = self.call_api("videos", "list", part="snippet,contentDetails", id=video_id)
+        response = self.call_api(
+            "videos", "list", part="snippet,contentDetails", id=video_id)
         items = response.get("items", [])
         if not items:
             return None
@@ -44,7 +70,8 @@ class YouTubeAPI:
         content = item["contentDetails"]
 
         try:
-            duration = int(isodate.parse_duration(content["duration"]).total_seconds())
+            duration = int(isodate.parse_duration(
+                content["duration"]).total_seconds())
         except Exception:
             duration = None
 
@@ -67,13 +94,15 @@ class YouTubeAPI:
         """チャンネルをDBから取得、なければAPIから取得・保存して返す"""
         with self.db._connect() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM channels WHERE channel_id = ?", (channel_id,))
+            cursor.execute(
+                "SELECT * FROM channels WHERE channel_id = ?", (channel_id,))
             result = cursor.fetchone()
 
         if result:
             return result
 
-        response = self.call_api("channels", "list", part="snippet", id=channel_id)
+        response = self.call_api(
+            "channels", "list", part="snippet", id=channel_id)
         items = response.get("items", [])
         if not items:
             return None
@@ -196,7 +225,8 @@ class YouTubeAPI:
                 duration_iso = item["contentDetails"]["duration"]
 
                 try:
-                    duration_sec = int(isodate.parse_duration(duration_iso).total_seconds())
+                    duration_sec = int(isodate.parse_duration(
+                        duration_iso).total_seconds())
                 except Exception:
                     duration_sec = None
 
