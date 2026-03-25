@@ -207,4 +207,5 @@ myutils/**/*.db
 myutils/**/*.sqlite
 myutils/**/*.sqlite3
 
-st4-project.*
+*.sublime-project
+*.sublime-workspace

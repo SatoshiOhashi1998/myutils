@@ -77,6 +77,19 @@ class YouTubeDB:
         conn.commit()
         conn.close()
 
+    def get_video_by_id(self, video_id):
+        """
+        指定された video_id の動画情報を取得します。
+        """
+        conn = self._connect()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT * FROM videos WHERE video_id = ?", (video_id,))
+            result = cursor.fetchone()
+            return result
+        finally:
+            conn.close()
+
     def update_video_duration(self, video_id, duration):
         conn = self._connect()
         cursor = conn.cursor()
