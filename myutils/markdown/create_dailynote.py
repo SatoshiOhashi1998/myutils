@@ -44,7 +44,6 @@ def generate_google_calendar_link_text(target_date=None):
     """
     指定された日付（省略時は当日）を元に、Googleカレンダーのリンク付き文字列を生成する
     """
-    print("DEBUG: create_daily_note_from_file が呼ばれました") # ここを追加
     if target_date is None:
         target_date = datetime.now()
     
@@ -61,9 +60,6 @@ def generate_google_calendar_link_text(target_date=None):
     
     # マークダウン形式のリンク文字列を作成
     result_text = f"[{date_display}のリンク]({calendar_url})"
-    print('====================')
-    print(result_text)
-    print('====================')
     
     return result_text
 
