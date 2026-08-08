@@ -165,19 +165,25 @@ def extract_lists_from_content(content):
         "tasks": task_list
     }
 
+def get_headings_from_content(content):
+    """
+    本文（文字列）から見出し（#）の一覧を取得する
+    """
+    headings = []
+    for line in content.splitlines():
+        if line.startswith("#"):
+            level = len(line.split()[0])
+            text = line.lstrip("#").strip()
+            headings.append({"level": level, "text": text})
+    return headings
+
 def get_all_headings(file_path):
     """
-    ファイル全体から見出し（#）の一覧を取得する
+    ファイル全体から見出しの一覧を取得する
     """
     try:
         post = frontmatter.load(file_path)
-        headings = []
-        for line in post.content.splitlines():
-            if line.startswith("#"):
-                level = len(line.split()[0])
-                text = line.lstrip("#").strip()
-                headings.append({"level": level, "text": text})
-        return headings
+        return get_headings_from_content(post.content)
     except Exception as e:
         print(f"エラー ({file_path}): {e}")
         return []
@@ -187,31 +193,10 @@ def get_sub_headings_by_heading(file_path, target_heading):
     指定したファイルと見出しの中にある、下位の見出しの一覧を取得する
     """
     try:
-        post = frontmatter.load(file_path)
-        lines = post.content.splitlines()
-        
-        capturing = False
-        target_level = 0
-        sub_headings = []
-        
-        for line in lines:
-            if line.startswith("#"):
-                level = len(line.split()[0])
-                heading_text = line.lstrip("#").strip()
-                
-                if not capturing:
-                    if heading_text == target_heading:
-                        capturing = True
-                        target_level = level
-                        continue
-                else:
-                    # 同じレベルかそれより上の見出しが出現したら終了
-                    if level <= target_level:
-                        break
-                    # キャプチャ中の下位見出しを収集
-                    sub_headings.append({"level": level, "text": heading_text})
-                    
-        return sub_headings
+        content = get_content_by_heading(file_path, target_heading)
+        if not content:
+            return []
+        return get_headings_from_content(content)
     except Exception as e:
         print(f"エラー ({file_path}): {e}")
         return []
