@@ -1,5 +1,7 @@
 import frontmatter
 import re
+import os
+import glob
 
 def get_file_content(file_path):
     """ファイルからYAMLを除いた本文を取得する"""
@@ -115,3 +117,19 @@ def get_headings_from_content(content):
 def get_sub_headings_by_heading(file_path, target_heading):
     content = get_content_by_heading(file_path, target_heading)
     return get_headings_from_content(content) if content else []
+
+def find_files_by_keyword(target_dir: str, keyword: str = "計画", extension: str = "md") -> list:
+    """
+    指定ディレクトリから特定のキーワードを含むファイル名を検索し、拡張子を除いたファイル名のリストを返す
+    """
+    search_pattern = os.path.join(target_dir, f"*.{extension}")
+    matched_names = []
+    
+    for file_path in glob.glob(search_pattern):
+        base_name = os.path.basename(file_path)
+        file_title, _ = os.path.splitext(base_name)
+        
+        if keyword in file_title:
+            matched_names.append(file_title)
+            
+    return matched_names
