@@ -2,7 +2,7 @@ from datetime import timedelta, datetime
 import os
 from jinja2 import Template
 from .yaml_handler import set_created_date_to_markdown
-from .core_reader import append_content_to_heading
+from .core_reader import append_content_to_heading, find_files_by_keyword
 
 def generate_google_calendar_link_text(target_date=None):
     """Googleカレンダーのリンク付き文字列を生成する"""
@@ -20,6 +20,17 @@ def generate_dailynote_links(start_date: datetime, end_date: datetime) -> str:
         links.append(f"[[{current_date.strftime('%Y-%m-%d')}]]")
         current_date += timedelta(days=1)
     return "\n".join(links)
+
+def generate_plan_note_links(target_dir: str, year: int, week_num: int) -> str:
+    """
+    core_reader の find_files_by_keyword を使って計画ファイルを探し、
+    指定週のリンク文字列を生成する
+    """
+    plan_files = find_files_by_keyword(target_dir, keyword="計画", extension="md")
+    week_str = f"{year}-W{week_num:02d}"
+    
+    plan_links = [f"[[{file_title}#{week_str}]]" for file_title in plan_files]
+    return "\n".join(plan_links)
 
 def create_daily_note_from_file(output_dir, target_date, template_path):
     """デイリーノートを作成する"""
@@ -45,8 +56,8 @@ def batch_create_dailies_from_file(output_dir, start_date, days_count, template_
     for i in range(days_count):
         create_daily_note_from_file(output_dir, start_date + timedelta(days=i), template_path)
 
-def create_weekly_note(output_dir, target_date, template_path, start_of_week="monday"):
-    """ウィークリーノートを作成し、該当週のデイリーノートリンクを挿入する"""
+def create_weekly_note(output_dir, target_date, template_path, plan_dir=None, start_of_week="monday"):
+    """ウィークリーノートを作成し、該当週のデイリーノートおよび計画ノートのリンクを挿入する"""
     os.makedirs(output_dir, exist_ok=True)
     
     if start_of_week == "monday":
@@ -72,4 +83,12 @@ def create_weekly_note(output_dir, target_date, template_path, start_of_week="mo
         f.write(rendered_content)
 
     set_created_date_to_markdown(file_path, target_date)
-    append_content_to_heading(file_path, 'Daily Notes', generate_dailynote_links(start_date, end_date))
+    
+    # 1. デイリーノートのリンクを挿入
+    append_content_to_heading(file_path, 'デイリーノート', generate_dailynote_links(start_date, end_date))
+    
+    # 2. 計画ノートのリンクを挿入（plan_dirが指定されている場合）
+    if plan_dir:
+        plan_links_text = generate_plan_note_links(plan_dir, year, week_num)
+        if plan_links_text:
+            append_content_to_heading(file_path, '計画ノート', plan_links_text)
