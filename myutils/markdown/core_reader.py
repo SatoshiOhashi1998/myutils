@@ -133,3 +133,10 @@ def find_files_by_keyword(target_dir: str, keyword: str = "計画", extension: s
             matched_names.append(file_title)
             
     return matched_names
+
+def format_obsidian_link(title: str) -> str:
+    """
+    ファイルタイトルをObsidianの埋め込みリンク形式（![[タイトル]]）に加工する
+    """
+    clean_title = title.strip()
+    return f"![[{clean_title}]]"
