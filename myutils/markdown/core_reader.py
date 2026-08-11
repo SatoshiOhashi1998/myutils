@@ -3,8 +3,21 @@ import re
 import os
 import glob
 
-def get_file_content(file_path):
-    """ファイルからYAMLを除いた本文を取得する"""
+
+# ==========================================
+# 1. 基本的なファイル読み込み・書き込み・検索
+# ==========================================
+
+def get_file_content(file_path: str) -> str | None:
+    """
+    指定されたMarkdownファイルからYAMLフロントマターを除いた本文（コンテンツ）を取得する。
+
+    Args:
+        file_path (str): 対象のMarkdownファイルのパス
+
+    Returns:
+        str | None: フロントマターを除いた本文文字列。エラー時はNone
+    """
     try:
         post = frontmatter.load(file_path)
         return post.content
@@ -12,8 +25,63 @@ def get_file_content(file_path):
         print(f"エラー ({file_path}): {e}")
         return None
 
-def get_content_by_heading(file_path, target_heading):
-    """指定した見出しから次の同等以上の見出しまでの本文を取得する"""
+def find_files_by_keyword(target_dir: str, keyword: str = "計画", extension: str = "md") -> list:
+    """
+    指定ディレクトリから特定のキーワードをファイル名に含むファイルを検索し、
+    拡張子を除いたファイル名のリストを返す。
+
+    Args:
+        target_dir (str): 検索対象のディレクトリパス
+        keyword (str): ファイル名に含まれるべきキーワード（デフォルト: "計画"）
+        extension (str): 対象の拡張子（デフォルト: "md"）
+
+    Returns:
+        list: 条件に一致した拡張子抜きのファイル名のリスト
+    """
+    search_pattern = os.path.join(target_dir, f"*.{extension}")
+    matched_names = []
+    
+    for file_path in glob.glob(search_pattern):
+        base_name = os.path.basename(file_path)
+        file_title, _ = os.path.splitext(base_name)
+        
+        if keyword in file_title:
+            matched_names.append(file_title)
+            
+    return matched_names
+
+
+# ==========================================
+# 2. 見出し（Heading）の解析・取得
+# ==========================================
+
+def get_headings_from_content(content: str) -> list:
+    """
+    Markdownの本文文字列からすべての見出し階層とテキストのリストを抽出する。
+
+    Args:
+        content (str): 解析対象のMarkdown本文
+
+    Returns:
+        list: [{"level": 階層(int), "text": 見出し文(str)}, ...] のリスト
+    """
+    headings = []
+    for line in content.splitlines():
+        if line.startswith("#"):
+            headings.append({"level": len(line.split()[0]), "text": line.lstrip("#").strip()})
+    return headings
+
+def get_content_by_heading(file_path: str, target_heading: str) -> str | None:
+    """
+    指定したファイル内の特定の見出しから、次の同等以上のレベルの見出しまでの本文を取得する。
+
+    Args:
+        file_path (str): 対象のMarkdownファイルのパス
+        target_heading (str): 抽出を開始する見出しのテキスト（# を除く）
+
+    Returns:
+        str | None: 抽出されたセクションの本文文字列。見つからない場合やエラー時はNone
+    """
     try:
         post = frontmatter.load(file_path)
         lines = post.content.splitlines()
@@ -44,8 +112,35 @@ def get_content_by_heading(file_path, target_heading):
         print(f"エラー ({file_path}): {e}")
         return None
 
-def append_content_to_heading(file_path, target_heading, text_to_append):
-    """指定したファイル内の特定の見出しセクションの末尾の次に行にテキストを書き込む"""
+def get_sub_headings_by_heading(file_path: str, target_heading: str) -> list:
+    """
+    指定した見出しセクション内に含まれるサブ見出し（子見出し）のリストを取得する。
+
+    Args:
+        file_path (str): 対象のMarkdownファイルのパス
+        target_heading (str): 親となる見出しのテキスト
+
+    Returns:
+        list: サブ見出しの情報のリスト（get_headings_from_contentの戻り値と同様）
+    """
+    content = get_content_by_heading(file_path, target_heading)
+    return get_headings_from_content(content) if content else []
+
+
+# ==========================================
+# 3. コンテンツの編集・リスト抽出
+# ==========================================
+
+def append_content_to_heading(file_path: str, target_heading: str, text_to_append: str) -> None:
+    """
+    指定したファイル内の特定の見出しセクションの末尾（次の見出しの直前）にテキストを追記する。
+    見出しが存在しない場合は、ファイルの末尾に新しい見出しとテキストを追加する。
+
+    Args:
+        file_path (str): 対象のMarkdownファイルのパス
+        target_heading (str): 追記対象の見出しテキスト
+        text_to_append (str): 追加するテキスト
+    """
     try:
         post = frontmatter.load(file_path)
         lines = post.content.splitlines()
@@ -88,8 +183,16 @@ def append_content_to_heading(file_path, target_heading, text_to_append):
     except Exception as e:
         print(f"エラー発生 ({file_path}): {e}")
 
-def extract_lists_from_content(content):
-    """本文から箇条書き、順序リスト、タスクリストを抽出する"""
+def extract_lists_from_content(content: str) -> dict:
+    """
+    Markdownの本文文字列から、箇条書き・順序リスト・タスクリストを抽出して辞書形式で返す。
+
+    Args:
+        content (str): 解析対象のMarkdown本文
+
+    Returns:
+        dict: {"bullets": [...], "numbered": [...], "tasks": [{"text": ..., "completed": ...}]} 形式の辞書
+    """
     bullet_list, numbered_list, task_list = [], [], []
     for line in content.splitlines():
         stripped = line.strip()
@@ -107,36 +210,20 @@ def extract_lists_from_content(content):
             
     return {"bullets": bullet_list, "numbered": numbered_list, "tasks": task_list}
 
-def get_headings_from_content(content):
-    headings = []
-    for line in content.splitlines():
-        if line.startswith("#"):
-            headings.append({"level": len(line.split()[0]), "text": line.lstrip("#").strip()})
-    return headings
 
-def get_sub_headings_by_heading(file_path, target_heading):
-    content = get_content_by_heading(file_path, target_heading)
-    return get_headings_from_content(content) if content else []
-
-def find_files_by_keyword(target_dir: str, keyword: str = "計画", extension: str = "md") -> list:
-    """
-    指定ディレクトリから特定のキーワードを含むファイル名を検索し、拡張子を除いたファイル名のリストを返す
-    """
-    search_pattern = os.path.join(target_dir, f"*.{extension}")
-    matched_names = []
-    
-    for file_path in glob.glob(search_pattern):
-        base_name = os.path.basename(file_path)
-        file_title, _ = os.path.splitext(base_name)
-        
-        if keyword in file_title:
-            matched_names.append(file_title)
-            
-    return matched_names
+# ==========================================
+# 4. 外部フォーマット・ユーティリティ
+# ==========================================
 
 def format_obsidian_link(title: str) -> str:
     """
-    ファイルタイトルをObsidianの埋め込みリンク形式（![[タイトル]]）に加工する
+    ファイルタイトルをObsidianの埋め込みリンク形式（![[タイトル]]）に加工する。
+
+    Args:
+        title (str): 対象のファイルタイトル
+
+    Returns:
+        str: 埋め込みリンク形式に加工された文字列
     """
     clean_title = title.strip()
     return f"![[{clean_title}]]"
