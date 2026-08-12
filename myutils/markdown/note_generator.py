@@ -2,7 +2,7 @@ import os
 from datetime import timedelta
 from jinja2 import Template
 from .yaml_handler import set_created_date_to_markdown
-from .core_reader import append_content_to_heading, find_files_by_keyword
+from .io import append_content_to_heading, find_files_by_keyword
 from .note_builder import (
     generate_google_calendar_link_text,
     generate_dailynote_links,
