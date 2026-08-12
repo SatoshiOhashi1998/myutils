@@ -65,19 +65,26 @@ def find_headings_by_tag_in_file(file_path: str, tag: str) -> list[str]:
     """単一ファイル内で指定タグが含まれる行が属する見出しを取得する。"""
     matched_headings = []
     current_heading = "Top"
+
     tag_pattern = re.compile(
-        rf"(^|\s)(#{re.escape(tag)}(?:\/[^\s]+)?)(\s|$)", re.IGNORECASE
+        rf"(?:^|[\s\W])(#{re.escape(tag)}(?:/[^\s]+)?)(\s|$)", re.IGNORECASE
     )
 
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             for line in f:
                 stripped = line.strip()
-                if stripped.startswith("#"):
+
+                # 正しい見出しの判定: `#` の直後にスペース（またはタブ）があるか判定
+                # 例: "# test" は見出しだが、"#test" はタグ（または通常テキスト）
+                if re.match(r"^#{1,6}[\s\t]", stripped):
                     current_heading = stripped.lstrip("#").strip()
-                elif tag_pattern.search(line):
+
+                # タグの判定
+                if tag_pattern.search(line):
                     if current_heading not in matched_headings:
                         matched_headings.append(current_heading)
+
     except Exception as e:
         print(f"ファイル読み込みエラー ({file_path}): {e}")
 

@@ -36,30 +36,42 @@ def extract_lists_from_content(content: str) -> dict:
     }
 
 
-def extract_nested_lists_from_content(content: str) -> dict:
-    """インデント深さ（スペース数）を保持してリスト構造を抽出する。"""
+def extract_nested_lists_from_content(content: str, tab_size: int = 4) -> dict:
+    """
+    タブやスペースのインデント深さを保持してリスト構造を抽出する。
+    """
     bullet_list, task_list = [], []
 
     for line in content.splitlines():
-        indent_spaces = len(line) - len(line.lstrip(" "))
-        stripped = line.strip()
-
-        task_match = re.match(r"^-\s*\[([ xX])\]\s+(.*)", stripped)
-        if task_match:
-            task_list.append(
-                {
-                    "text": task_match.group(2),
-                    "completed": task_match.group(1).strip() != "",
-                    "indent": indent_spaces,
-                }
-            )
+        if not line.strip():
             continue
 
-        bullet_match = re.match(r"^[-*+]\s+(.*)", stripped)
+        # タブをスペースに変換（デフォルト: タブ1個 ＝ スペース4個）
+        expanded_line = line.expandtabs(tab_size)
+        indent_spaces = len(expanded_line) - len(expanded_line.lstrip(' '))
+
+        # 1. タスクリストの判定 (- [ ] テキスト)
+        task_match = re.match(r"^\s*[-\*+]\s+\[([ xX])\](?:\s+(.*))?$", line)
+        if task_match:
+            text = task_match.group(2) or ""
+            # 空のタスク（"- [ ] " のみ）を除外したい場合は下の条件を残す
+            if text.strip():
+                task_list.append({
+                    "text": text.strip(),
+                    "completed": task_match.group(1).strip() != "",
+                    "indent": indent_spaces
+                })
+            continue
+
+        # 2. 箇条書きの判定 (- テキスト)
+        bullet_match = re.match(r"^\s*[-\*+]\s+(.*)", line)
         if bullet_match:
-            bullet_list.append(
-                {"text": bullet_match.group(1), "indent": indent_spaces}
-            )
+            text = bullet_match.group(1).strip()
+            if text:
+                bullet_list.append({
+                    "text": text,
+                    "indent": indent_spaces
+                })
 
     return {"bullets": bullet_list, "tasks": task_list}
 
