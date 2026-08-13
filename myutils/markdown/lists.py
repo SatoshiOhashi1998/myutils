@@ -1,6 +1,5 @@
 import os
 import re
-from .headings import get_content_by_heading, get_sub_headings_by_heading
 from .utils import parse_tag_time_line
 
 
@@ -49,19 +48,20 @@ def extract_nested_lists_from_content(content: str, tab_size: int = 4) -> dict:
 
         # タブをスペースに変換（デフォルト: タブ1個 ＝ スペース4個）
         expanded_line = line.expandtabs(tab_size)
-        indent_spaces = len(expanded_line) - len(expanded_line.lstrip(' '))
+        indent_spaces = len(expanded_line) - len(expanded_line.lstrip(" "))
 
         # 1. タスクリストの判定 (- [ ] テキスト)
         task_match = re.match(r"^\s*[-\*+]\s+\[([ xX])\](?:\s+(.*))?$", line)
         if task_match:
             text = task_match.group(2) or ""
-            # 空のタスク（"- [ ] " のみ）を除外したい場合は下の条件を残す
             if text.strip():
-                task_list.append({
-                    "text": text.strip(),
-                    "completed": task_match.group(1).strip() != "",
-                    "indent": indent_spaces
-                })
+                task_list.append(
+                    {
+                        "text": text.strip(),
+                        "completed": task_match.group(1).strip() != "",
+                        "indent": indent_spaces,
+                    }
+                )
             continue
 
         # 2. 箇条書きの判定 (- テキスト)
@@ -69,52 +69,15 @@ def extract_nested_lists_from_content(content: str, tab_size: int = 4) -> dict:
         if bullet_match:
             text = bullet_match.group(1).strip()
             if text:
-                bullet_list.append({
-                    "text": text,
-                    "indent": indent_spaces
-                })
+                bullet_list.append(
+                    {"text": text, "indent": indent_spaces}
+                )
 
     return {"bullets": bullet_list, "tasks": task_list}
 
 
-def extract_lists_from_heading(file_path: str, target_heading: str) -> dict:
-    """特定見出しセクションからリストを抽出する。"""
-    file_name = os.path.splitext(os.path.basename(file_path))[0]
-    content = get_content_by_heading(file_path, target_heading)
-    lists = (
-        extract_lists_from_content(content)
-        if content
-        else {"bullets": [], "numbered": [], "tasks": []}
-    )
-    return {"file_name": file_name, "heading": target_heading, "lists": lists}
-
-
-def extract_lists_from_all_sub_headings(
-    file_path: str, target_heading: str
-) -> list[dict]:
-    """親見出し配下の全サブ見出しからリストを抽出する。"""
-    sub_headings = get_sub_headings_by_heading(file_path, target_heading)
-    return [
-        extract_lists_from_heading(file_path, sh["text"])
-        for sh in sub_headings
-    ]
-
 def parse_tasks_to_tree(tasks: list[dict]) -> list[dict]:
-    """フラットなタスクリスト（indent付き）を親・子の階層構造（ツリー）に変換する。
-
-    Returns:
-        list[dict]: [
-            {
-                "text": "運動: 30分",
-                "tag": "運動",          # parse_tag_time_line が成功した場合
-                "minutes": 30,          # parse_tag_time_line が成功した場合
-                "children": [
-                    {"text": "Pamela 10分下半身"},
-                    {"text": "Pamela 10分下半身"}
-                ]
-            }
-        ]
-    """
+    """フラットなタスクリスト（indent付き）を親・子の階層構造（ツリー）に変換する。"""
     tree = []
     current_parent = None
 

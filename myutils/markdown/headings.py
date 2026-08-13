@@ -4,10 +4,10 @@ import re
 import frontmatter
 
 from .lists import (
+    extract_lists_from_content,
     extract_nested_lists_from_content,
     parse_tasks_to_tree,
 )
-
 
 
 def get_headings_from_content(content: str) -> list[dict]:
@@ -82,7 +82,6 @@ def find_headings_by_tag_in_file(file_path: str, tag: str) -> list[str]:
                 stripped = line.strip()
 
                 # 正しい見出しの判定: `#` の直後にスペース（またはタブ）があるか判定
-                # 例: "# test" は見出しだが、"#test" はタグ（または通常テキスト）
                 if re.match(r"^#{1,6}[\s\t]", stripped):
                     current_heading = stripped.lstrip("#").strip()
 
@@ -131,3 +130,26 @@ def get_heading_task_tree(
     tasks = nested_lists.get("tasks", [])
 
     return parse_tasks_to_tree(tasks)
+
+
+def extract_lists_from_heading(file_path: str, target_heading: str) -> dict:
+    """特定見出しセクションからリストを抽出する。"""
+    file_name = os.path.splitext(os.path.basename(file_path))[0]
+    content = get_content_by_heading(file_path, target_heading)
+    lists = (
+        extract_lists_from_content(content)
+        if content
+        else {"bullets": [], "numbered": [], "tasks": []}
+    )
+    return {"file_name": file_name, "heading": target_heading, "lists": lists}
+
+
+def extract_lists_from_all_sub_headings(
+    file_path: str, target_heading: str
+) -> list[dict]:
+    """親見出し配下の全サブ見出しからリストを抽出する。"""
+    sub_headings = get_sub_headings_by_heading(file_path, target_heading)
+    return [
+        extract_lists_from_heading(file_path, sh["text"])
+        for sh in sub_headings
+    ]
