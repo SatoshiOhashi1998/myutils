@@ -1,6 +1,7 @@
 import os
 import re
 from .headings import get_content_by_heading, get_sub_headings_by_heading
+from .utils import parse_tag_time_line
 
 
 def extract_lists_from_content(content: str) -> dict:
@@ -97,3 +98,50 @@ def extract_lists_from_all_sub_headings(
         extract_lists_from_heading(file_path, sh["text"])
         for sh in sub_headings
     ]
+
+def parse_tasks_to_tree(tasks: list[dict]) -> list[dict]:
+    """フラットなタスクリスト（indent付き）を親・子の階層構造（ツリー）に変換する。
+
+    Returns:
+        list[dict]: [
+            {
+                "text": "運動: 30分",
+                "tag": "運動",          # parse_tag_time_line が成功した場合
+                "minutes": 30,          # parse_tag_time_line が成功した場合
+                "children": [
+                    {"text": "Pamela 10分下半身"},
+                    {"text": "Pamela 10分下半身"}
+                ]
+            }
+        ]
+    """
+    tree = []
+    current_parent = None
+
+    for task in tasks:
+        text = task["text"]
+        indent = task.get("indent", 0)
+
+        # 最上位階層（親）
+        if indent == 0:
+            parsed = parse_tag_time_line(text)
+            node = {
+                "text": text,
+                "completed": task.get("completed", False),
+                "children": [],
+            }
+
+            if parsed:
+                node["tag"] = parsed["tag"]
+                node["minutes"] = parsed["minutes"]
+
+            current_parent = node
+            tree.append(current_parent)
+
+        # 配下階層（子）
+        elif current_parent and indent > 0:
+            current_parent["children"].append(
+                {"text": text, "completed": task.get("completed", False)}
+            )
+
+    return tree

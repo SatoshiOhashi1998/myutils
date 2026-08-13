@@ -3,6 +3,12 @@ import os
 import re
 import frontmatter
 
+from .lists import (
+    extract_nested_lists_from_content,
+    parse_tasks_to_tree,
+)
+
+
 
 def get_headings_from_content(content: str) -> list[dict]:
     """Markdown本文から見出し階層（level）とテキスト（text）のリストを抽出する。"""
@@ -111,3 +117,17 @@ def find_headings_by_tag_in_directory(
             )
 
     return all_results
+
+
+def get_heading_task_tree(
+    file_path: str, target_heading: str
+) -> list[dict] | None:
+    """指定したファイルと見出しから、構造化されたタスクツリーを取得する。"""
+    content = get_content_by_heading(file_path, target_heading)
+    if content is None:
+        return None
+
+    nested_lists = extract_nested_lists_from_content(content)
+    tasks = nested_lists.get("tasks", [])
+
+    return parse_tasks_to_tree(tasks)
