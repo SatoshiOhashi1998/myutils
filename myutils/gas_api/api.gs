@@ -18,11 +18,31 @@ function doPost(e) {
     dataList = [dataList];
   }
 
-  var calendar = CalendarApp.getDefaultCalendar();
-  debugMessages.push("Default calendar obtained.");
+  // --- カレンダーID マッピング設定 ---
+  var CALENDARS = {
+    "weather": "4c4cc3148140f2b0fb0a965a58c78d1792de8f69e0fa6dddfd724731c7db256d@group.calendar.google.com",
+    "1 like": "377182e69aa069411d636148a9a3cb206eca37f5725bd5d1a44db51de9b751f4@group.calendar.google.com",
+    "Daily Life": "9ead6636940460164ac0a2e7059d360c7a47d925fb4ed94d205c772ff1515bed@group.calendar.google.com",
+    "Diary": "9ed20081d4d8e950f219c1208491f479160fab5a8057870ac48338751a8008e7@group.calendar.google.com"
+  };
 
-  // 色マッピング関数
+  // 送信された calendarKey または calendarId を取得（デフォルトは "Daily Life"）
+  var calendarKey = params.calendarKey || "Daily Life";
+  var targetCalendarId = params.calendarId || CALENDARS[calendarKey] || CALENDARS["Daily Life"];
+
+  var calendar = CalendarApp.getCalendarById(targetCalendarId);
+  
+  if (!calendar) {
+    calendar = CalendarApp.getDefaultCalendar();
+    debugMessages.push("Calendar ID not found, using default calendar.");
+  } else {
+    debugMessages.push("Target calendar obtained: " + calendar.getName() + " (Key/ID: " + targetCalendarId + ")");
+  }
+
+  // 色マッピング関数（未指定・Noneの場合は DEFAULT を返す）
   function getEventColor(colorName) {
+    if (!colorName) return CalendarApp.EventColor.DEFAULT;
+
     var map = {
       "PALE_BLUE": CalendarApp.EventColor.PALE_BLUE,
       "GREEN": CalendarApp.EventColor.GREEN,
@@ -53,32 +73,35 @@ function doPost(e) {
 
         // 重複チェック
         var existingEvents = calendar.getEvents(startTime, endTime);
-        var isDuplicate = existingEvents.some(ev => ev.getTitle() === title);
+        var isDuplicate = existingEvents.some(function(ev) { return ev.getTitle() === title; });
 
         if (isDuplicate) {
           responses.push({
             success: false,
-            error: `Event "${title}" already exists.`
+            error: "Event \"" + title + "\" already exists."
           });
-          return; // 次のイベントへ
+          return;
         }
 
         event = calendar.createEvent(title, startTime, endTime, { description: description });
       }
 
-      event.setColor(color);
+      // 色の設定（DEFAULT 以外が指定されている場合のみ設定）
+      if (color !== CalendarApp.EventColor.DEFAULT) {
+        event.setColor(color);
+      }
 
       responses.push({
         success: true,
         eventId: event.getId()
       });
-      debugMessages.push(`Event created: ${title} with ID: ${event.getId()}`);
+      debugMessages.push("Event created: " + title + " with ID: " + event.getId());
     } catch (err) {
       responses.push({
         success: false,
-        error: err.message
+        error: err.toString()
       });
-      debugMessages.push(`Error creating event: ${err.message}`);
+      debugMessages.push("Error creating event: " + err.toString());
     }
   });
 
