@@ -19,12 +19,9 @@ def parse_vocabulary_line(line: str) -> dict | None:
         return None
     return {"word": word.strip(), "meaning": meaning.strip()}
 
+
 def parse_tag_time_line(text: str) -> dict | None:
-    """
-    「運動: 30分」や「アニメ鑑賞: 90分」のようなテキストから
-    tag と minutes を抽出する。
-    """
-    # 「タスク名: 数字分」のパターンにマッチさせる
+    """「運動: 30分」や「アニメ鑑賞: 90分」のようなテキストから tag と minutes を抽出する。"""
     match = re.search(r"^(.*?):\s*(\d+)分$", text.strip())
     if match:
         return {
@@ -33,34 +30,30 @@ def parse_tag_time_line(text: str) -> dict | None:
         }
     return None
 
-def parse_tag_time_line_with_start(line: str) -> Optional[Dict[str, Any]]:
-    """
-    タスク行から タグ、所要時間(分)、開始時刻(任意: @HH:MM) を抽出する
 
-    対応フォーマット例:
-      - "* [ ] アニメ鑑賞: 90分 @18:00" -> tag: "アニメ鑑賞", minutes: 90, start_time: "18:00"
-      - "- [ ] 運動: 30分 @9:30"        -> tag: "運動", minutes: 30, start_time: "09:30"
-      - "* [ ] 読書: 45分"              -> tag: "読書", minutes: 45, start_time: None
+def parse_tag_time_line_with_start(text: str) -> Optional[Dict[str, Any]]:
     """
-    # 箇条書き記号とチェックボックスを無視し、タグ、所要時間、任意の @HH:MM を取得する正規表現
-    pattern = r"^\s*[-*]\s+\[[\sxX]\]\s*(?P<tag>[^:\s]+):\s*(?P<minutes>\d+)分(?:\s+@(?P<time>\d{1,2}:\d{2}))?"
+    タスク文字列から タグ, 分数, 開始時刻(任意) を抽出する。
+    例:
+      - "- [ ] 運動: 30分 @18:00" -> {'tag': '運動', 'minutes': 30, 'start_time': '18:00'}
+      - "運動: 30分"               -> {'tag': '運動', 'minutes': 30, 'start_time': None}
+    """
+    if not text:
+        return None
 
-    match = re.search(pattern, line)
+    # 1. 先頭の箇条書き記号を完全に除去
+    clean_text = re.sub(r"^[\s\t]*[-*+]\s*(\[[ xX]\]\s*)?", "", text).strip()
+
+    # 2. タグ: 分数 [@時刻] のパターンにマッチング（スペースを含むタグにも対応）
+    pattern = r"^(?P<tag>[^:]+?)\s*:\s*(?P<minutes>\d+)分(?:\s*@(?P<start_time>\d{1,2}:\d{2}))?"
+    
+    match = re.search(pattern, clean_text)
     if not match:
         return None
 
-    tag = match.group("tag").strip()
-    minutes = int(match.group("minutes"))
-    raw_time = match.group("time")
-
-    start_time = None
-    if raw_time:
-        # "9:30" などの1桁時を "09:30" にゼロパディングして統一
-        hours, mins = raw_time.split(":")
-        start_time = f"{int(hours):02d}:{mins}"
-
+    data = match.groupdict()
     return {
-        "tag": tag,
-        "minutes": minutes,
-        "start_time": start_time  # 時刻指定がない場合は None
+        "tag": data["tag"].strip(),
+        "minutes": int(data["minutes"]),
+        "start_time": data.get("start_time"),
     }
