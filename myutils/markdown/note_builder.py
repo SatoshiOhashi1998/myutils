@@ -1,3 +1,4 @@
+# note_builder.py
 from datetime import timedelta, datetime
 
 def generate_google_calendar_link_text(target_date=None) -> str:
