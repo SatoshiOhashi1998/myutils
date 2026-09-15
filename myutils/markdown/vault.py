@@ -112,6 +112,76 @@ class Note:
         self.content = "\n".join(new_lines)
         self.save()
 
+
+    def replace_heading_content(
+        self,
+        target_heading: str,
+        new_content: str,
+    ) -> None:
+        """
+        指定した見出しの本文を置き換える。
+
+        見出しが存在しない場合は ## 見出し を末尾に追加する。
+        """
+        lines = self.content.splitlines()
+        new_lines: list[str] = []
+
+        capturing = False
+        target_level = 0
+        replaced = False
+
+        for line in lines:
+            is_heading = line.startswith("#")
+
+            if is_heading:
+                level = len(line.split()[0])
+                heading_text = line.lstrip("#").strip()
+            else:
+                level = 0
+                heading_text = ""
+
+            if capturing:
+                if is_heading and level <= target_level:
+                    if not replaced:
+                        if new_content:
+                            new_lines.extend(
+                                new_content.splitlines()
+                            )
+                        replaced = True
+
+                    capturing = False
+
+            new_lines.append(line)
+
+            if (
+                not capturing
+                and is_heading
+                and heading_text == target_heading
+            ):
+                capturing = True
+                target_level = level
+
+        if capturing and not replaced:
+            if new_content:
+                new_lines.extend(
+                    new_content.splitlines()
+                )
+            replaced = True
+
+        if not replaced:
+            if new_lines and new_lines[-1] != "":
+                new_lines.append("")
+
+            new_lines.append(f"## {target_heading}")
+
+            if new_content:
+                new_lines.extend(
+                    new_content.splitlines()
+                )
+
+        self.content = "\n".join(new_lines)
+        self.save()
+
     def get_content_by_heading(self, target_heading: str) -> str | None:
         """
         特定見出しから次の同等以上の見出しまでの本文を返す。
