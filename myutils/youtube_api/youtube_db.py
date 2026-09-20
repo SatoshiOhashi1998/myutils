@@ -109,3 +109,91 @@ class YouTubeDB:
         results = cursor.fetchall()
         conn.close()
         return results
+
+    def get_channel_by_id(self, channel_id):
+        """指定したchannel_idのチャンネル情報を取得する。"""
+        conn = self._connect()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT channel_id, channel_title FROM channels WHERE channel_id = ?",
+                (channel_id,),
+            )
+            return cursor.fetchone()
+        finally:
+            conn.close()
+
+    def get_videos_by_channel_and_date(self, channel_id, start_date, end_date):
+        """
+        指定チャンネル・指定期間の動画を取得する。
+
+        start_date は含む。
+        end_date は含まない。
+        """
+        conn = self._connect()
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT *
+                FROM videos
+                WHERE channel_id = ?
+                  AND published_at >= ?
+                  AND published_at < ?
+                ORDER BY published_at DESC
+                """,
+                (channel_id, start_date, end_date),
+            )
+            return cursor.fetchall()
+        finally:
+            conn.close()
+
+    def upsert_video(self, video):
+        """
+        動画情報をDBに保存する。
+
+        video_idが存在しない場合はINSERT、
+        既に存在する場合は動画情報をUPDATEする。
+        """
+        conn = self._connect()
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                video_id,
+                title,
+                channel_id,
+                published_at,
+                duration,
+                thumbnail_default,
+                thumbnail_medium,
+                thumbnail_high
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(video_id) DO UPDATE SET
+                title = excluded.title,
+                channel_id = excluded.channel_id,
+                published_at = excluded.published_at,
+                duration = COALESCE(
+                    excluded.duration,
+                    videos.duration
+                ),
+                thumbnail_default = excluded.thumbnail_default,
+                thumbnail_medium = excluded.thumbnail_medium,
+                thumbnail_high = excluded.thumbnail_high
+            """,
+            (
+                video["video_id"],
+                video["title"],
+                video["channel_id"],
+                video.get("published_at"),
+                video.get("duration"),
+                video.get("thumbnail_default"),
+                video.get("thumbnail_medium"),
+                video.get("thumbnail_high"),
+            ),
+        )
+
+        conn.commit()
+        conn.close()

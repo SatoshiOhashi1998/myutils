@@ -321,3 +321,104 @@ class YouTubeAPI:
             "list",
             **params,
         )
+
+    def get_live_streaming_video_ids(self, video_ids):
+        """
+        liveStreamingDetailsを持つvideo_idを取得する。
+
+        liveStreamingDetailsはyoutube.dbには保存せず、
+        YouTube APIから処理時に確認する。
+        """
+        live_video_ids = set()
+
+        for i in range(0, len(video_ids), 50):
+            batch_ids = video_ids[i:i + 50]
+            if not batch_ids:
+                continue
+
+            response = self.youtube.videos().list(
+                part="liveStreamingDetails",
+                id=",".join(batch_ids),
+            ).execute()
+
+            for item in response.get("items", []):
+                if "liveStreamingDetails" in item:
+                    live_video_ids.add(item["id"])
+
+        return live_video_ids
+
+    def get_video_details_with_cache(
+        self,
+        video_id,
+        part="snippet,contentDetails",
+    ):
+        """
+        YouTube APIから動画詳細を取得し、youtube_cache.dbに保存する。
+
+        既にDBに存在する動画についても、APIから取得した最新情報で
+        動画情報を更新する。
+
+        Returns:
+            dict | None:
+                YouTube APIから取得した動画情報。
+                指定されたvideo_idが存在しない場合はNone。
+        """
+        item = self.get_video_details(
+            video_id,
+            part=part,
+        )
+
+        if item is None:
+            return None
+
+        snippet = item.get("snippet", {})
+
+        channel_id = snippet.get("channelId")
+        channel_title = snippet.get("channelTitle")
+
+        if not channel_id or not channel_title:
+            return item
+
+        # チャンネルを保存
+        self.db.insert_channel(
+            channel_id,
+            channel_title,
+        )
+
+        video = {
+            "video_id": video_id,
+            "title": snippet.get("title", ""),
+            "channel_id": channel_id,
+            "published_at": snippet.get("publishedAt"),
+            "duration": None,
+            "thumbnail_default": (
+                snippet.get("thumbnails", {})
+                .get("default", {})
+                .get("url")
+            ),
+            "thumbnail_medium": (
+                snippet.get("thumbnails", {})
+                .get("medium", {})
+                .get("url")
+            ),
+            "thumbnail_high": (
+                snippet.get("thumbnails", {})
+                .get("high", {})
+                .get("url")
+            ),
+        }
+
+        # contentDetailsが取得されている場合はdurationを保存
+        if "contentDetails" in item:
+            duration = item["contentDetails"].get("duration")
+
+            if duration:
+                import isodate
+
+                video["duration"] = int(
+                    isodate.parse_duration(duration).total_seconds()
+                )
+
+        self.db.upsert_video(video)
+
+        return item
