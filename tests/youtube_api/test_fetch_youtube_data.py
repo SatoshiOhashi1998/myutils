@@ -5,17 +5,10 @@ from myutils.youtube_api.youtube_db import YouTubeDB
 
 
 def create_api(tmp_path):
-    """テスト用のYouTubeAPIを作成する。"""
-    api = YouTubeAPI.__new__(YouTubeAPI)
-
-    # YouTube APIへの実際の接続は行わない
-    api.youtube = MagicMock()
-
-    # テストごとに一時SQLite DBを使用する
-    api.db = YouTubeDB(tmp_path / "youtube.db")
-
-    return api
-
+    return YouTubeAPI(
+        youtube=MagicMock(),
+        db=YouTubeDB(tmp_path / "youtube.db"),
+    )
 
 def test_get_video_with_cache_returns_cached_video(tmp_path):
     """DBにキャッシュが存在する場合、その動画を返す。"""
