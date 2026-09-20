@@ -41,7 +41,7 @@ class YouTubeAPI:
     def __init__(self, youtube=None, db=None):
         self.youtube = youtube or build(...)
         self.db = db or YouTubeDB()
-        
+
     def call_api(self, resource, method, **params):
         """汎用 API 呼び出し関数"""
         func = getattr(getattr(self.youtube, resource)(), method)
@@ -231,3 +231,85 @@ class YouTubeAPI:
                     duration_sec = None
 
                 self.db.update_video_duration(vid, duration_sec)
+
+    def search_videos(
+        self,
+        query=None,
+        channel_id=None,
+        published_after=None,
+        published_before=None,
+        event_type=None,
+        max_results=50,
+        order="date",
+        page_token=None,
+    ):
+        """YouTube動画を検索する"""
+        def to_utc_z(dt):
+            if isinstance(dt, datetime):
+                return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            return dt
+
+        params = {
+            "part": "snippet",
+            "type": "video",
+            "maxResults": max_results,
+            "order": order,
+        }
+
+        if query is not None:
+            params["q"] = query
+
+        if channel_id is not None:
+            params["channelId"] = channel_id
+
+        if published_after is not None:
+            params["publishedAfter"] = to_utc_z(published_after)
+
+        if published_before is not None:
+            params["publishedBefore"] = to_utc_z(published_before)
+
+        if event_type is not None:
+            params["eventType"] = event_type
+
+        if page_token is not None:
+            params["pageToken"] = page_token
+
+        return self.call_api("search", "list", **params)
+
+    def get_video_details(self, video_id, part="snippet,contentDetails"):
+        """指定した動画の詳細情報を取得する"""
+        response = self.call_api(
+            "videos",
+            "list",
+            part=part,
+            id=video_id,
+        )
+
+        items = response.get("items", [])
+
+        if not items:
+            return None
+
+        return items[0]
+
+    def get_playlist_items(
+        self,
+        playlist_id,
+        max_results=50,
+        page_token=None,
+    ):
+        """プレイリスト内の動画を取得する"""
+        params = {
+            "part": "snippet",
+            "playlistId": playlist_id,
+            "maxResults": max_results,
+        }
+
+        if page_token is not None:
+            params["pageToken"] = page_token
+
+        return self.call_api(
+            "playlistItems",
+            "list",
+            **params,
+        )
