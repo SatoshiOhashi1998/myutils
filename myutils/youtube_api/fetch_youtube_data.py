@@ -39,8 +39,16 @@ API_KEY = os.getenv('YOUTUBE_API_KEY')
 
 class YouTubeAPI:
     def __init__(self, youtube=None, db=None):
-        self.youtube = youtube or build(...)
-        self.db = db or YouTubeDB()
+        self.youtube = (
+            youtube
+            if youtube is not None
+            else build(
+                "youtube",
+                "v3",
+                developerKey=API_KEY,
+            )
+        )
+        self.db = db if db is not None else YouTubeDB()
 
     def call_api(self, resource, method, **params):
         """汎用 API 呼び出し関数"""
