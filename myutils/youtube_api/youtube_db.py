@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 from dotenv import load_dotenv
 
@@ -26,7 +27,7 @@ class YouTubeDB:
             tags TEXT
         );
         """)
-        
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             video_id TEXT PRIMARY KEY,
@@ -198,3 +199,48 @@ class YouTubeDB:
 
         conn.commit()
         conn.close()
+    def update_channel_tags(self, channel_id, tags):
+        """
+        指定チャンネルのタグを更新する。
+
+        tags:
+            list[str]
+        """
+        tags_json = json.dumps(
+            tags,
+            ensure_ascii=False,
+        )
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE channels
+                SET tags = ?
+                WHERE channel_id = ?
+                """,
+                (tags_json, channel_id),
+            )
+
+
+    def get_channel_tags(self, channel_id):
+        """
+        指定チャンネルのタグを取得する。
+
+        Returns:
+            list[str]:
+                タグが未設定の場合は空のリスト。
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT tags
+                FROM channels
+                WHERE channel_id = ?
+                """,
+                (channel_id,),
+            ).fetchone()
+
+        if row is None or row[0] is None:
+            return []
+
+        return json.loads(row[0])
