@@ -22,10 +22,11 @@ class YouTubeDB:
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS channels (
             channel_id TEXT PRIMARY KEY,
-            channel_title TEXT NOT NULL
+            channel_title TEXT NOT NULL,
+            tags TEXT
         );
         """)
-
+        
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             video_id TEXT PRIMARY KEY,
