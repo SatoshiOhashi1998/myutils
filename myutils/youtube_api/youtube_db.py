@@ -28,6 +28,11 @@ class YouTubeDB:
         );
         """)
 
+        # 既存DBにtagsカラムがなければ追加
+        columns = cursor.execute(
+            "PRAGMA table_info(channels)"
+        ).fetchall()
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             video_id TEXT PRIMARY KEY,
