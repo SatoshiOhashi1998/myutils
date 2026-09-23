@@ -260,6 +260,7 @@ def test_get_channel_with_cache_returns_cached_channel(tmp_path):
     assert result == (
         "channel1",
         "テストチャンネル",
+        None,
     )
 
     api.call_api.assert_not_called()
@@ -715,7 +716,7 @@ def test_get_channel_videos_with_cache_fetches_when_cache_is_empty(
 
     api.fetch_and_save_videos_from_channel = MagicMock()
 
-    def save_video():
+    def save_video(*args, **kwargs):
         api.db.insert_video(
             {
                 "video_id": "video1",
