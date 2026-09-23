@@ -53,6 +53,37 @@ def _parse_duration(value):
     except Exception:
         return None
 
+def _video_from_api_item(item):
+    snippet = item.get("snippet", {})
+    content_details = item.get("contentDetails", {})
+
+    video_id = item.get("id")
+
+    duration = None
+
+    duration_iso = content_details.get("duration")
+    if duration_iso:
+        duration = _parse_duration(duration_iso)
+
+    thumbnails = snippet.get("thumbnails", {})
+
+    return {
+        "video_id": video_id,
+        "title": snippet.get("title", ""),
+        "channel_id": snippet.get("channelId"),
+        "published_at": snippet.get("publishedAt"),
+        "duration": duration,
+        "thumbnail_default": (
+            thumbnails.get("default", {}).get("url")
+        ),
+        "thumbnail_medium": (
+            thumbnails.get("medium", {}).get("url")
+        ),
+        "thumbnail_high": (
+            thumbnails.get("high", {}).get("url")
+        ),
+    }
+
 class YouTubeAPI:
     def __init__(self, youtube=None, db=None):
         self.youtube = (
@@ -89,24 +120,9 @@ class YouTubeAPI:
             return None
 
         item = items[0]
-        snippet = item["snippet"]
-        content = item["contentDetails"]
 
-        duration = _parse_duration(
-            content["duration"]
-        )
-
-        video = {
-            "video_id": video_id,
-            "title": snippet["title"],
-            "channel_id": snippet["channelId"],
-            "published_at": snippet.get("publishedAt"),
-            "duration": duration,
-            "thumbnail_default": snippet["thumbnails"].get("default", {}).get("url"),
-            "thumbnail_medium": snippet["thumbnails"].get("medium", {}).get("url"),
-            "thumbnail_high": snippet["thumbnails"].get("high", {}).get("url"),
-        }
-
+        video = _video_from_api_item(item)
+        
         self.get_channel_with_cache(video["channel_id"])  # チャンネルも挿入
         self.db.insert_video(video)
         return video
@@ -342,17 +358,6 @@ class YouTubeAPI:
         video_id,
         part="snippet,contentDetails",
     ):
-        """
-        YouTube APIから動画詳細を取得し、youtube_cache.dbに保存する。
-
-        既にDBに存在する動画についても、APIから取得した最新情報で
-        動画情報を更新する。
-
-        Returns:
-            dict | None:
-                YouTube APIから取得した動画情報。
-                指定されたvideo_idが存在しない場合はNone。
-        """
         item = self.get_video_details(
             video_id,
             part=part,
@@ -369,40 +374,12 @@ class YouTubeAPI:
         if not channel_id or not channel_title:
             return item
 
-        # チャンネルを保存
         self.db.insert_channel(
             channel_id,
             channel_title,
         )
 
-        video = {
-            "video_id": video_id,
-            "title": snippet.get("title", ""),
-            "channel_id": channel_id,
-            "published_at": snippet.get("publishedAt"),
-            "duration": None,
-            "thumbnail_default": (
-                snippet.get("thumbnails", {})
-                .get("default", {})
-                .get("url")
-            ),
-            "thumbnail_medium": (
-                snippet.get("thumbnails", {})
-                .get("medium", {})
-                .get("url")
-            ),
-            "thumbnail_high": (
-                snippet.get("thumbnails", {})
-                .get("high", {})
-                .get("url")
-            ),
-        }
-
-        # contentDetailsが取得されている場合はdurationを保存
-        if "contentDetails" in item:
-            duration = item["contentDetails"].get("duration")
-            if duration:
-                video["duration"] = _parse_duration(duration)
+        video = _video_from_api_item(item)
 
         self.db.upsert_video(video)
 

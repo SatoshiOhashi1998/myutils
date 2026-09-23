@@ -74,9 +74,7 @@ def test_get_video_with_cache_fetches_from_api(tmp_path):
         return_value={
             "items": [
                 {
-                    "id": {
-                        "videoId": "video1",
-                    },
+                    "id": "video1",
                     "snippet": {
                         "title": "テスト動画",
                         "channelId": "channel1",
@@ -177,9 +175,7 @@ def test_get_video_with_cache_converts_duration_to_seconds(tmp_path):
         return_value={
             "items": [
                 {
-                    "id": {
-                        "videoId": "video1",
-                    },
+                    "id": "video1",
                     "snippet": {
                         "title": "テスト動画",
                         "channelId": "channel1",
@@ -217,9 +213,7 @@ def test_get_video_with_cache_handles_invalid_duration(tmp_path):
         return_value={
             "items": [
                 {
-                    "id": {
-                        "videoId": "video1",
-                    },
+                    "id": "video1",
                     "snippet": {
                         "title": "テスト動画",
                         "channelId": "channel1",
