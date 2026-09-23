@@ -76,11 +76,9 @@ class YouTubeAPI:
         snippet = item["snippet"]
         content = item["contentDetails"]
 
-        try:
-            duration = int(isodate.parse_duration(
-                content["duration"]).total_seconds())
-        except Exception:
-            duration = None
+        duration = _parse_duration(
+            content["duration"]
+        )
 
         video = {
             "video_id": video_id,
@@ -217,12 +215,7 @@ class YouTubeAPI:
             for item in response.get("items", []):
                 vid = item["id"]
                 duration_iso = item["contentDetails"]["duration"]
-
-                try:
-                    duration_sec = int(isodate.parse_duration(
-                        duration_iso).total_seconds())
-                except Exception:
-                    duration_sec = None
+                duration_sec = _parse_duration(duration_iso)
 
                 self.db.update_video_duration(vid, duration_sec)
 
@@ -392,13 +385,8 @@ class YouTubeAPI:
         # contentDetailsが取得されている場合はdurationを保存
         if "contentDetails" in item:
             duration = item["contentDetails"].get("duration")
-
             if duration:
-                import isodate
-
-                video["duration"] = int(
-                    isodate.parse_duration(duration).total_seconds()
-                )
+                video["duration"] = _parse_duration(duration)
 
         self.db.upsert_video(video)
 
