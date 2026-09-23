@@ -127,11 +127,6 @@ class YouTubeAPI:
             print(f"Channel {channel_id} not found")
             return
 
-        def to_utc_z(dt):
-            if isinstance(dt, datetime):
-                return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            return dt  # 文字列ならそのまま（責任は呼び出し元）
-
         next_page_token = None
 
         while True:
@@ -140,8 +135,8 @@ class YouTubeAPI:
                 channelId=channel_id,
                 maxResults=max_results,
                 order="date",
-                publishedAfter=to_utc_z(published_after),
-                publishedBefore=to_utc_z(published_before),
+                publishedAfter=_to_utc_z(published_after),
+                publishedBefore=_to_utc_z(published_before),
                 pageToken=next_page_token,
                 type="video"
             )
@@ -177,15 +172,8 @@ class YouTubeAPI:
                 break
 
     def get_channel_videos_with_cache(self, channel_id, start_date, end_date):
-        def to_utc_z(dt):
-            if isinstance(dt, datetime):
-                return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            elif isinstance(dt, str) and not dt.endswith("Z"):
-                return dt + "Z"
-            return dt
-
-        start = to_utc_z(start_date)
-        end = to_utc_z(end_date)
+        start = _to_utc_z(start_date)
+        end = _to_utc_z(end_date)
 
         results = self.db.get_videos_by_channel_and_date(
             channel_id,
@@ -250,11 +238,6 @@ class YouTubeAPI:
         page_token=None,
     ):
         """YouTube動画を検索する"""
-        def to_utc_z(dt):
-            if isinstance(dt, datetime):
-                return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            return dt
-
         params = {
             "part": "snippet",
             "type": "video",
@@ -269,10 +252,10 @@ class YouTubeAPI:
             params["channelId"] = channel_id
 
         if published_after is not None:
-            params["publishedAfter"] = to_utc_z(published_after)
+            params["publishedAfter"] = _to_utc_z(published_after)
 
         if published_before is not None:
-            params["publishedBefore"] = to_utc_z(published_before)
+            params["publishedBefore"] = _to_utc_z(published_before)
 
         if event_type is not None:
             params["eventType"] = event_type
