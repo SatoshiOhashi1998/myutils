@@ -412,3 +412,11 @@ def _to_utc_z(value):
         return value + "Z"
 
     return value
+
+def _parse_duration(value):
+    try:
+        return int(
+            isodate.parse_duration(value).total_seconds()
+        )
+    except Exception:
+        return None
