@@ -36,6 +36,22 @@ from .youtube_db import YouTubeDB
 load_dotenv()
 API_KEY = os.getenv('YOUTUBE_API_KEY')
 
+def _to_utc_z(value):
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if isinstance(value, str) and not value.endswith("Z"):
+        return value + "Z"
+
+    return value
+
+def _parse_duration(value):
+    try:
+        return int(
+            isodate.parse_duration(value).total_seconds()
+        )
+    except Exception:
+        return None
 
 class YouTubeAPI:
     def __init__(self, youtube=None, db=None):
@@ -391,20 +407,3 @@ class YouTubeAPI:
         self.db.upsert_video(video)
 
         return item
-
-def _to_utc_z(value):
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    if isinstance(value, str) and not value.endswith("Z"):
-        return value + "Z"
-
-    return value
-
-def _parse_duration(value):
-    try:
-        return int(
-            isodate.parse_duration(value).total_seconds()
-        )
-    except Exception:
-        return None
