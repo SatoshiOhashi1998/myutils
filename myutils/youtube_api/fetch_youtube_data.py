@@ -428,11 +428,4 @@ def _to_utc_z(value):
     if isinstance(value, str) and not value.endswith("Z"):
         return value + "Z"
 
-    return valuedef _to_utc_z(value):
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    if isinstance(value, str) and not value.endswith("Z"):
-        return value + "Z"
-
     return value
