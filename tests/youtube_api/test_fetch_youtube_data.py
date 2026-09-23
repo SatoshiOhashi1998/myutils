@@ -1159,3 +1159,38 @@ def test_get_video_details_with_cache_preserves_existing_duration(
 
     # API側にdurationがないので既存値を維持
     assert video[4] == 300
+
+def test_get_channel_videos_with_cache_returns_cached_videos(
+    tmp_path,
+):
+    """DBに動画が存在する場合、APIを呼ばずキャッシュを返す。"""
+    api = create_api(tmp_path)
+
+    api.db.insert_channel(
+        "channel1",
+        "テストチャンネル",
+    )
+
+    api.db.insert_video(
+        {
+            "video_id": "video1",
+            "title": "キャッシュ動画",
+            "channel_id": "channel1",
+            "published_at": "2025-07-01T12:00:00Z",
+            "duration": 300,
+        }
+    )
+
+    api.fetch_and_save_videos_from_channel = MagicMock()
+
+    result = api.get_channel_videos_with_cache(
+        "channel1",
+        "2025-07-01T00:00:00Z",
+        "2025-07-02T00:00:00Z",
+    )
+
+    assert len(result) == 1
+    assert result[0][0] == "video1"
+    assert result[0][1] == "キャッシュ動画"
+
+    api.fetch_and_save_videos_from_channel.assert_not_called()
