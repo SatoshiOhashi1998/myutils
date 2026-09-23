@@ -5,6 +5,7 @@ from myutils.youtube_api.youtube_db import YouTubeDB
 
 from myutils.youtube_api.fetch_youtube_data import (
     YouTubeAPI,
+    _parse_duration,
     _to_utc_z,
 )
 
@@ -1225,3 +1226,18 @@ def test_to_utc_z_keeps_string_with_z():
 
 def test_to_utc_z_keeps_none():
     assert _to_utc_z(None) is None
+
+def test_parse_duration_converts_iso_duration():
+    assert _parse_duration("PT5M") == 300
+
+
+def test_parse_duration_converts_hours_minutes_seconds():
+    assert _parse_duration("PT1H2M3S") == 3723
+
+
+def test_parse_duration_returns_zero_for_zero_duration():
+    assert _parse_duration("PT0S") == 0
+
+
+def test_parse_duration_returns_none_for_invalid_value():
+    assert _parse_duration("invalid") is None
