@@ -470,3 +470,54 @@ def test_get_channel_tags_returns_empty_list_when_channel_not_found(
     result = db.get_channel_tags("channel1")
 
     assert result == []
+
+def test_get_videos_by_channel_and_date_uses_end_exclusive_range(
+    tmp_path,
+):
+    """動画検索の終了日時は範囲に含まれない。"""
+    db = YouTubeDB(tmp_path / "test.db")
+
+    db.insert_channel(
+        "channel1",
+        "テストチャンネル",
+    )
+
+    videos = [
+        {
+            "video_id": "video1",
+            "title": "開始時刻ちょうど",
+            "channel_id": "channel1",
+            "published_at": "2025-07-01T00:00:00Z",
+            "duration": None,
+        },
+        {
+            "video_id": "video2",
+            "title": "期間内",
+            "channel_id": "channel1",
+            "published_at": "2025-07-01T12:00:00Z",
+            "duration": None,
+        },
+        {
+            "video_id": "video3",
+            "title": "終了時刻ちょうど",
+            "channel_id": "channel1",
+            "published_at": "2025-07-02T00:00:00Z",
+            "duration": None,
+        },
+    ]
+
+    for video in videos:
+        db.insert_video(video)
+
+    result = db.get_videos_by_channel_and_date(
+        "channel1",
+        "2025-07-01T00:00:00Z",
+        "2025-07-02T00:00:00Z",
+    )
+
+    video_ids = [row[0] for row in result]
+
+    assert video_ids == [
+        "video2",
+        "video1",
+    ]
