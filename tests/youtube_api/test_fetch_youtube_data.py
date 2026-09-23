@@ -1,8 +1,12 @@
 from datetime import datetime
 from unittest.mock import MagicMock
 
-from myutils.youtube_api.fetch_youtube_data import YouTubeAPI
 from myutils.youtube_api.youtube_db import YouTubeDB
+
+from myutils.youtube_api.fetch_youtube_data import (
+    YouTubeAPI,
+    _to_utc_z,
+)
 
 
 def create_api(tmp_path):
@@ -1194,3 +1198,30 @@ def test_get_channel_videos_with_cache_returns_cached_videos(
     assert result[0][1] == "キャッシュ動画"
 
     api.fetch_and_save_videos_from_channel.assert_not_called()
+
+def test_to_utc_z_converts_datetime():
+    value = datetime(2025, 7, 1, 12, 30, 45)
+
+    result = _to_utc_z(value)
+
+    assert result == "2025-07-01T12:30:45Z"
+
+
+def test_to_utc_z_adds_z_to_string_without_z():
+    value = "2025-07-01T12:30:45"
+
+    result = _to_utc_z(value)
+
+    assert result == "2025-07-01T12:30:45Z"
+
+
+def test_to_utc_z_keeps_string_with_z():
+    value = "2025-07-01T12:30:45Z"
+
+    result = _to_utc_z(value)
+
+    assert result == "2025-07-01T12:30:45Z"
+
+
+def test_to_utc_z_keeps_none():
+    assert _to_utc_z(None) is None
