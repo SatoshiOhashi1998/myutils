@@ -260,7 +260,6 @@ def test_get_channel_with_cache_returns_cached_channel(tmp_path):
     assert result == (
         "channel1",
         "テストチャンネル",
-        None,
     )
 
     api.call_api.assert_not_called()

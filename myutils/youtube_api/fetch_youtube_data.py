@@ -57,18 +57,17 @@ class YouTubeAPI:
 
     def get_video_with_cache(self, video_id):
         """動画をDBから取得、なければAPIから取得・保存して返す"""
-        with self.db._connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM videos WHERE video_id = ?", (video_id,))
-            result = cursor.fetchone()
+        result = self.db.get_video_by_id(video_id)
 
         if result:
             return result
 
-        # APIから取得
         response = self.call_api(
-            "videos", "list", part="snippet,contentDetails", id=video_id)
+            "videos",
+            "list",
+            part="snippet,contentDetails",
+            id=video_id,
+        )
         items = response.get("items", [])
         if not items:
             return None
@@ -99,25 +98,27 @@ class YouTubeAPI:
         return video
 
     def get_channel_with_cache(self, channel_id):
-        """チャンネルをDBから取得、なければAPIから取得・保存して返す"""
-        with self.db._connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM channels WHERE channel_id = ?", (channel_id,))
-            result = cursor.fetchone()
+        """チャンネルをDBから取得、なければAPIから取得して保存して返す"""
+        result = self.db.get_channel_by_id(channel_id)
 
         if result:
             return result
 
         response = self.call_api(
-            "channels", "list", part="snippet", id=channel_id)
+            "channels",
+            "list",
+            part="snippet",
+            id=channel_id,
+        )
         items = response.get("items", [])
         if not items:
             return None
 
         snippet = items[0]["snippet"]
         title = snippet["title"]
+
         self.db.insert_channel(channel_id, title)
+
         return (channel_id, title)
 
     def fetch_and_save_videos_from_channel(self, channel_id, published_after=None, published_before=None, max_results=50, get_duration=False):
@@ -186,14 +187,11 @@ class YouTubeAPI:
         start = to_utc_z(start_date)
         end = to_utc_z(end_date)
 
-        with self.db._connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM videos
-                WHERE channel_id = ? AND published_at BETWEEN ? AND ?
-                ORDER BY published_at DESC
-            """, (channel_id, start, end))
-            results = cursor.fetchall()
+        results = self.db.get_videos_by_channel_and_date(
+            channel_id,
+            start,
+            end,
+        )
 
         if results:
             print('from DB')

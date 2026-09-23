@@ -118,12 +118,15 @@ class YouTubeDB:
         return results
 
     def get_channel_by_id(self, channel_id):
-        """指定したchannel_idのチャンネル情報を取得する。"""
         conn = self._connect()
         cursor = conn.cursor()
         try:
             cursor.execute(
-                "SELECT channel_id, channel_title FROM channels WHERE channel_id = ?",
+                """
+                SELECT channel_id, channel_title
+                FROM channels
+                WHERE channel_id = ?
+                """,
                 (channel_id,),
             )
             return cursor.fetchone()
