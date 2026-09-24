@@ -7,6 +7,8 @@ from myutils.youtube_api.fetch_youtube_data import (
     YouTubeAPI,
     _parse_duration,
     _to_utc_z,
+    _video_from_api_item,
+    _video_from_search_item,
 )
 
 
@@ -1235,3 +1237,43 @@ def test_parse_duration_returns_zero_for_zero_duration():
 
 def test_parse_duration_returns_none_for_invalid_value():
     assert _parse_duration("invalid") is None
+
+def test_video_from_search_item():
+    item = {
+        "id": {
+            "kind": "youtube#video",
+            "videoId": "video1",
+        },
+        "snippet": {
+            "title": "テスト動画",
+            "channelId": "channel1",
+            "publishedAt": "2025-07-01T00:00:00Z",
+            "thumbnails": {
+                "default": {
+                    "url": "default.jpg",
+                },
+                "medium": {
+                    "url": "medium.jpg",
+                },
+                "high": {
+                    "url": "high.jpg",
+                },
+            },
+        },
+    }
+
+    result = _video_from_search_item(
+        item,
+        "channel1",
+    )
+
+    assert result == {
+        "video_id": "video1",
+        "title": "テスト動画",
+        "channel_id": "channel1",
+        "published_at": "2025-07-01T00:00:00Z",
+        "duration": None,
+        "thumbnail_default": "default.jpg",
+        "thumbnail_medium": "medium.jpg",
+        "thumbnail_high": "high.jpg",
+    }

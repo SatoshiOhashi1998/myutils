@@ -193,20 +193,10 @@ class YouTubeAPI:
             videos_to_insert = []
 
             for item in response.get("items", []):
-                vid = item["id"]["videoId"]
-                video_ids.append(vid)
+                video = _video_from_search_item(item, channel_id)
 
-                snippet = item["snippet"]
-                videos_to_insert.append({
-                    "video_id": vid,
-                    "title": snippet["title"],
-                    "channel_id": channel_id,
-                    "published_at": snippet.get("publishedAt"),
-                    "duration": None,
-                    "thumbnail_default": snippet["thumbnails"].get("default", {}).get("url"),
-                    "thumbnail_medium": snippet["thumbnails"].get("medium", {}).get("url"),
-                    "thumbnail_high": snippet["thumbnails"].get("high", {}).get("url"),
-                })
+                video_ids.append(video["video_id"])
+                videos_to_insert.append(video)
 
             for video in videos_to_insert:
                 self.db.insert_video(video)
