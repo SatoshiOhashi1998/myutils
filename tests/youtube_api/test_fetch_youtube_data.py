@@ -79,22 +79,34 @@ def test_get_video_with_cache_fetches_from_api(tmp_path):
     api = create_api(tmp_path)
 
     api.call_api = MagicMock(
-        return_value={
-            "items": [
-                {
-                    "id": "video1",
-                    "snippet": {
-                        "title": "Test Video",
-                        "channelId": "channel1",
-                        "publishedAt": "2026-01-01T00:00:00Z",
-                        "thumbnails": {},
-                    },
-                    "contentDetails": {
-                        "duration": "PT2M",
-                    },
-                }
-            ]
-        }
+        side_effect=[
+            {
+                "items": [
+                    {
+                        "id": "video1",
+                        "snippet": {
+                            "title": "Test Video",
+                            "channelId": "channel1",
+                            "publishedAt": "2026-01-01T00:00:00Z",
+                            "thumbnails": {},
+                        },
+                        "contentDetails": {
+                            "duration": "PT2M",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+        ]
     )
 
     result = api.get_video_with_cache("video1")
