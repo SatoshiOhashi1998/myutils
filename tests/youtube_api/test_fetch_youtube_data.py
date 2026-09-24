@@ -1149,6 +1149,24 @@ def test_video_from_api_item_handles_missing_fields():
         "thumbnail_high": None,
     }
 
+def test_video_from_api_item_handles_missing_content_details():
+    item = {
+        "id": "video1",
+        "snippet": {
+            "title": "Test Video",
+            "channelId": "channel1",
+            "publishedAt": "2026-01-01T00:00:00Z",
+            "thumbnails": {},
+        },
+    }
+
+    result = _video_from_api_item(item)
+
+    assert result["video_id"] == "video1"
+    assert result["title"] == "Test Video"
+    assert result["channel_id"] == "channel1"
+    assert result["duration"] is None
+
 def test_video_from_api_item():
     item = {
         "id": "video1",
