@@ -139,6 +139,43 @@ def test_get_video_with_cache_fetches_from_api(tmp_path):
     )
 
 
+def test_get_video_with_cache_uses_cached_channel(tmp_path):
+    api = create_api(tmp_path)
+
+    api.db.insert_channel("channel1", "Cached Channel")
+
+    api.call_api = MagicMock(
+        return_value={
+            "items": [
+                {
+                    "id": "video1",
+                    "snippet": {
+                        "title": "Test Video",
+                        "channelId": "channel1",
+                        "publishedAt": "2026-01-01T00:00:00Z",
+                        "thumbnails": {},
+                    },
+                    "contentDetails": {
+                        "duration": "PT2M",
+                    },
+                }
+            ]
+        }
+    )
+
+    result = api.get_video_with_cache("video1")
+
+    assert result["video_id"] == "video1"
+    assert result["title"] == "Test Video"
+
+    api.call_api.assert_called_once_with(
+        "videos",
+        "list",
+        part="snippet,contentDetails",
+        id="video1",
+    )
+
+
 def test_get_video_with_cache_returns_none_when_api_has_no_items(tmp_path):
     api = create_api(tmp_path)
     api.call_api = MagicMock(return_value={"items": []})
@@ -609,6 +646,16 @@ def test_fetch_and_update_video_details_batches_50_ids(tmp_path):
     assert len(calls[1].kwargs["id"].split(",")) == 1
 
 
+def test_fetch_and_update_video_details_does_nothing_for_empty_ids(tmp_path):
+    api = create_api(tmp_path)
+
+    api.call_api = MagicMock()
+
+    api.fetch_and_update_video_details([])
+
+    api.call_api.assert_not_called()
+
+
 # ============================================================
 # get_channel_videos_with_cache
 # ============================================================
@@ -724,6 +771,38 @@ def test_get_channel_videos_with_cache_returns_cached_videos(tmp_path):
     api.call_api.assert_not_called()
 
 
+def test_get_channel_videos_with_cache_returns_empty_when_nothing_found(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    api.call_api = MagicMock(
+        side_effect=[
+            {
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [],
+            },
+        ]
+    )
+
+    result = api.get_channel_videos_with_cache(
+        "channel1",
+        "2026-01-01T00:00:00Z",
+        "2026-01-02T00:00:00Z",
+    )
+
+    assert result == []
+
+
 # ============================================================
 # search_videos
 # ============================================================
@@ -811,6 +890,34 @@ def test_get_video_details_returns_first_item(tmp_path):
     )
 
 
+def test_get_video_details_passes_custom_part(tmp_path):
+    api = create_api(tmp_path)
+
+    api.call_api = MagicMock(
+        return_value={
+            "items": [
+                {
+                    "id": "video1",
+                }
+            ]
+        }
+    )
+
+    result = api.get_video_details(
+        "video1",
+        part="statistics",
+    )
+
+    assert result == {"id": "video1"}
+
+    api.call_api.assert_called_once_with(
+        "videos",
+        "list",
+        part="statistics",
+        id="video1",
+    )
+
+
 def test_get_video_details_returns_none_when_not_found(tmp_path):
     api = create_api(tmp_path)
 
@@ -854,6 +961,28 @@ def test_get_playlist_items(tmp_path):
         playlistId="playlist1",
         maxResults=25,
         pageToken="next-token",
+    )
+
+
+def test_get_playlist_items_omits_page_token_when_none(tmp_path):
+    api = create_api(tmp_path)
+
+    response = {
+        "items": [],
+    }
+
+    api.call_api = MagicMock(return_value=response)
+
+    result = api.get_playlist_items("playlist1")
+
+    assert result == response
+
+    api.call_api.assert_called_once_with(
+        "playlistItems",
+        "list",
+        part="snippet",
+        playlistId="playlist1",
+        maxResults=50,
     )
 
 
@@ -923,6 +1052,17 @@ def test_get_live_streaming_video_ids_batches_50_ids(tmp_path):
     assert len(calls[1].kwargs["id"].split(",")) == 1
 
 
+def test_get_live_streaming_video_ids_returns_empty_for_empty_ids(tmp_path):
+    api = create_api(tmp_path)
+
+    api.call_api = MagicMock()
+
+    result = api.get_live_streaming_video_ids([])
+
+    assert result == set()
+    api.call_api.assert_not_called()
+
+
 # ============================================================
 # get_video_details_with_cache
 # ============================================================
@@ -965,6 +1105,41 @@ def test_get_video_details_with_cache_saves_channel_and_video(tmp_path):
     assert video[4] == 120
 
 
+def test_get_video_details_with_cache_passes_custom_part(tmp_path):
+    api = create_api(tmp_path)
+
+    item = {
+        "id": "video1",
+        "snippet": {
+            "title": "Test Video",
+            "channelId": "channel1",
+            "channelTitle": "Test Channel",
+            "publishedAt": "2026-01-01T00:00:00Z",
+            "thumbnails": {},
+        },
+    }
+
+    api.call_api = MagicMock(
+        return_value={
+            "items": [item],
+        }
+    )
+
+    result = api.get_video_details_with_cache(
+        "video1",
+        part="snippet",
+    )
+
+    assert result == item
+
+    api.call_api.assert_called_once_with(
+        "videos",
+        "list",
+        part="snippet",
+        id="video1",
+    )
+
+
 def test_get_video_details_with_cache_returns_none_when_not_found(tmp_path):
     api = create_api(tmp_path)
 
@@ -999,6 +1174,37 @@ def test_get_video_details_with_cache_returns_item_when_channel_info_missing(
     result = api.get_video_details_with_cache("video1")
 
     assert result == item
+    assert api.db.get_video_by_id("video1") is None
+
+
+def test_get_video_details_with_cache_does_not_save_when_channel_title_missing(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    item = {
+        "id": "video1",
+        "snippet": {
+            "title": "Test Video",
+            "channelId": "channel1",
+            "publishedAt": "2026-01-01T00:00:00Z",
+            "thumbnails": {},
+        },
+        "contentDetails": {
+            "duration": "PT2M",
+        },
+    }
+
+    api.call_api = MagicMock(
+        return_value={
+            "items": [item],
+        }
+    )
+
+    result = api.get_video_details_with_cache("video1")
+
+    assert result == item
+    assert api.db.get_channel_by_id("channel1") is None
     assert api.db.get_video_by_id("video1") is None
 
 
@@ -1080,8 +1286,16 @@ def test_parse_duration():
     assert _parse_duration("PT1H2M3S") == 3723
 
 
+def test_parse_duration_returns_zero_for_zero_duration():
+    assert _parse_duration("PT0S") == 0
+
+
 def test_parse_duration_returns_none_for_invalid_value():
     assert _parse_duration("invalid") is None
+
+
+def test_parse_duration_returns_none_for_empty_value():
+    assert _parse_duration("") is None
 
 
 # ============================================================
@@ -1125,9 +1339,25 @@ def test_video_from_search_item():
     }
 
 
+def test_video_from_search_item_handles_missing_fields():
+    result = _video_from_search_item({}, "channel1")
+
+    assert result == {
+        "video_id": None,
+        "title": "",
+        "channel_id": "channel1",
+        "published_at": None,
+        "duration": None,
+        "thumbnail_default": None,
+        "thumbnail_medium": None,
+        "thumbnail_high": None,
+    }
+
+
 # ============================================================
 # _video_from_api_item
 # ============================================================
+
 
 def test_video_from_api_item_handles_missing_fields():
     item = {
@@ -1148,6 +1378,7 @@ def test_video_from_api_item_handles_missing_fields():
         "thumbnail_medium": None,
         "thumbnail_high": None,
     }
+
 
 def test_video_from_api_item():
     item = {
@@ -1224,9 +1455,34 @@ def test_channel_from_api_item():
         "channel_title": "Test Channel",
     }
 
+
+def test_channel_from_api_item_handles_missing_fields():
+    result = _channel_from_api_item({})
+
+    assert result == {
+        "channel_id": None,
+        "channel_title": "",
+    }
+
+
+# ============================================================
+# _chunks
+# ============================================================
+
+
 def test_chunks():
     assert list(_chunks([1, 2, 3, 4, 5], 2)) == [
         [1, 2],
         [3, 4],
         [5],
     ]
+
+
+def test_chunks_handles_empty_values():
+    assert list(_chunks([], 50)) == []
+
+
+def test_chunks_handles_exact_boundary():
+    values = list(range(50))
+
+    assert list(_chunks(values, 50)) == [values]
