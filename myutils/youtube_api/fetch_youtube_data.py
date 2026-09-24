@@ -36,6 +36,10 @@ def _parse_duration(value):
     except Exception:
         return None
 
+def _chunks(values, size):
+    for i in range(0, len(values), size):
+        yield values[i:i + size]
+
 
 # =============================================
 # API Response Converters
@@ -262,8 +266,7 @@ class YouTubeAPI:
     # -----------------------------------------
 
     def fetch_and_update_video_details(self, video_ids):
-        for i in range(0, len(video_ids), 50):
-            batch_ids = video_ids[i:i + 50]
+        for batch_ids in _chunks(video_ids, 50):
 
             response = self.call_api(
                 "videos",
@@ -413,8 +416,7 @@ class YouTubeAPI:
     def get_live_streaming_video_ids(self, video_ids):
         live_video_ids = set()
 
-        for i in range(0, len(video_ids), 50):
-            batch_ids = video_ids[i:i + 50]
+        for batch_ids in _chunks(video_ids, 50):
 
             if not batch_ids:
                 continue
