@@ -83,14 +83,11 @@ class YouTubeDB:
         """
         指定された video_id の動画情報を取得します。
         """
-        conn = self._connect()
-        cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT * FROM videos WHERE video_id = ?", (video_id,))
-            result = cursor.fetchone()
-            return result
-        finally:
-            conn.close()
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT * FROM videos WHERE video_id = ?",
+                (video_id,),
+            ).fetchone()
 
     def update_video_duration(self, video_id, duration):
         with self._connect() as conn:
@@ -103,30 +100,26 @@ class YouTubeDB:
             )
 
     def search_channels_by_title(self, keyword):
-        conn = self._connect()
-        cursor = conn.cursor()
-        query = "SELECT channel_id, channel_title FROM channels WHERE channel_title LIKE ?"
+        query = """
+            SELECT channel_id, channel_title
+            FROM channels
+            WHERE channel_title LIKE ?
+        """
         param = f"%{keyword}%"
-        cursor.execute(query, (param,))
-        results = cursor.fetchall()
-        conn.close()
-        return results
+
+        with self._connect() as conn:
+            return conn.execute(query, (param,)).fetchall()
 
     def get_channel_by_id(self, channel_id):
-        conn = self._connect()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
+        with self._connect() as conn:
+            return conn.execute(
                 """
                 SELECT channel_id, channel_title
                 FROM channels
                 WHERE channel_id = ?
                 """,
                 (channel_id,),
-            )
-            return cursor.fetchone()
-        finally:
-            conn.close()
+            ).fetchone()
 
     def get_videos_by_channel_and_date(self, channel_id, start_date, end_date):
         """
@@ -135,10 +128,8 @@ class YouTubeDB:
         start_date は含む。
         end_date は含まない。
         """
-        conn = self._connect()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
+        with self._connect() as conn:
+            return conn.execute(
                 """
                 SELECT *
                 FROM videos
@@ -148,10 +139,7 @@ class YouTubeDB:
                 ORDER BY published_at DESC
                 """,
                 (channel_id, start_date, end_date),
-            )
-            return cursor.fetchall()
-        finally:
-            conn.close()
+            ).fetchall()
 
     def upsert_video(self, video):
         with self._connect() as conn:
