@@ -364,10 +364,12 @@ class YouTubeAPI:
             if not batch_ids:
                 continue
 
-            response = self.youtube.videos().list(
+            response = self.call_api(
+                "videos",
+                "list",
                 part="liveStreamingDetails",
                 id=",".join(batch_ids),
-            ).execute()
+            )
 
             for item in response.get("items", []):
                 if "liveStreamingDetails" in item:
