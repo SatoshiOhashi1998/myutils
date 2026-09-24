@@ -8,6 +8,7 @@ from myutils.youtube_api.fetch_youtube_data import (
     _to_utc_z,
     _video_from_api_item,
     _video_from_search_item,
+    _chunks,
 )
 from myutils.youtube_api.youtube_db import YouTubeDB
 
@@ -1203,3 +1204,10 @@ def test_channel_from_api_item():
         "channel_id": "channel1",
         "channel_title": "Test Channel",
     }
+
+def test_chunks():
+    assert list(_chunks([1, 2, 3, 4, 5], 2)) == [
+        [1, 2],
+        [3, 4],
+        [5],
+    ]
