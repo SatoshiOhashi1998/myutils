@@ -27,7 +27,7 @@ class YouTubeDB:
             tags TEXT
         );
         """)
-        
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             video_id TEXT PRIMARY KEY,
@@ -59,25 +59,25 @@ class YouTubeDB:
             )
 
     def insert_video(self, video):
-        conn = self._connect()
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT OR IGNORE INTO videos (
-            video_id, title, channel_id, published_at, duration,
-            thumbnail_default, thumbnail_medium, thumbnail_high
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            video["video_id"],
-            video["title"],
-            video["channel_id"],
-            video.get("published_at"),
-            video.get("duration"),
-            video.get("thumbnail_default"),
-            video.get("thumbnail_medium"),
-            video.get("thumbnail_high"),
-        ))
-        conn.commit()
-        conn.close()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO videos (
+                    video_id, title, channel_id, published_at, duration,
+                    thumbnail_default, thumbnail_medium, thumbnail_high
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    video["video_id"],
+                    video["title"],
+                    video["channel_id"],
+                    video.get("published_at"),
+                    video.get("duration"),
+                    video.get("thumbnail_default"),
+                    video.get("thumbnail_medium"),
+                    video.get("thumbnail_high"),
+                ),
+            )
 
     def get_video_by_id(self, video_id):
         """
@@ -93,14 +93,14 @@ class YouTubeDB:
             conn.close()
 
     def update_video_duration(self, video_id, duration):
-        conn = self._connect()
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE videos SET duration = ?
-            WHERE video_id = ?
-        """, (duration, video_id))
-        conn.commit()
-        conn.close()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE videos SET duration = ?
+                WHERE video_id = ?
+                """,
+                (duration, video_id),
+            )
 
     def search_channels_by_title(self, keyword):
         conn = self._connect()
@@ -154,54 +154,46 @@ class YouTubeDB:
             conn.close()
 
     def upsert_video(self, video):
-        """
-        動画情報をDBに保存する。
-
-        video_idが存在しない場合はINSERT、
-        既に存在する場合は動画情報をUPDATEする。
-        """
-        conn = self._connect()
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            INSERT INTO videos (
-                video_id,
-                title,
-                channel_id,
-                published_at,
-                duration,
-                thumbnail_default,
-                thumbnail_medium,
-                thumbnail_high
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(video_id) DO UPDATE SET
-                title = excluded.title,
-                channel_id = excluded.channel_id,
-                published_at = excluded.published_at,
-                duration = COALESCE(
-                    excluded.duration,
-                    videos.duration
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO videos (
+                    video_id,
+                    title,
+                    channel_id,
+                    published_at,
+                    duration,
+                    thumbnail_default,
+                    thumbnail_medium,
+                    thumbnail_high
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(video_id) DO UPDATE SET
+                    title = excluded.title,
+                    channel_id = excluded.channel_id,
+                    published_at = excluded.published_at,
+                    duration = COALESCE(
+                        excluded.duration,
+                        videos.duration
+                    ),
+                    thumbnail_default = excluded.thumbnail_default,
+                    thumbnail_medium = excluded.thumbnail_medium,
+                    thumbnail_high = excluded.thumbnail_high
+                """,
+                (
+                    video["video_id"],
+                    video["title"],
+                    video["channel_id"],
+                    video.get("published_at"),
+                    video.get("duration"),
+                    video.get("thumbnail_default"),
+                    video.get("thumbnail_medium"),
+                    video.get("thumbnail_high"),
                 ),
-                thumbnail_default = excluded.thumbnail_default,
-                thumbnail_medium = excluded.thumbnail_medium,
-                thumbnail_high = excluded.thumbnail_high
-            """,
-            (
-                video["video_id"],
-                video["title"],
-                video["channel_id"],
-                video.get("published_at"),
-                video.get("duration"),
-                video.get("thumbnail_default"),
-                video.get("thumbnail_medium"),
-                video.get("thumbnail_high"),
-            ),
-        )
+            )
+            conn.commit()
+            conn.close()
 
-        conn.commit()
-        conn.close()
     def update_channel_tags(self, channel_id, tags):
         """
         指定チャンネルのタグを更新する。
