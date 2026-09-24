@@ -190,7 +190,9 @@ class YouTubeAPI:
         next_page_token = None
 
         while True:
-            request = self.youtube.search().list(
+            response = self.call_api(
+                "search",
+                "list",
                 part="id,snippet",
                 channelId=channel_id,
                 maxResults=max_results,
@@ -198,9 +200,8 @@ class YouTubeAPI:
                 publishedAfter=_to_utc_z(published_after),
                 publishedBefore=_to_utc_z(published_before),
                 pageToken=next_page_token,
-                type="video"
+                type="video",
             )
-            response = request.execute()
 
             video_ids = []
             videos_to_insert = []
