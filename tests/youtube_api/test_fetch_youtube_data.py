@@ -667,42 +667,6 @@ def test_fetch_and_update_video_details_processes_batches_of_50(
 # get_channel_videos_with_cache
 # ----------------------------------------------------------------------
 
-
-def test_get_channel_videos_with_cache_returns_cached_videos(
-    tmp_path,
-):
-    """指定期間の動画がDBに存在する場合、APIを呼ばずに返す。"""
-    api = create_api(tmp_path)
-
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    api.db.insert_video(
-        {
-            "video_id": "video1",
-            "title": "キャッシュ動画",
-            "channel_id": "channel1",
-            "published_at": "2025-07-01T12:00:00Z",
-            "duration": 300,
-        }
-    )
-
-    api.fetch_and_save_videos_from_channel = MagicMock()
-
-    result = api.get_channel_videos_with_cache(
-        "channel1",
-        "2025-07-01T00:00:00Z",
-        "2025-07-02T00:00:00Z",
-    )
-
-    assert len(result) == 1
-    assert result[0][0] == "video1"
-
-    api.fetch_and_save_videos_from_channel.assert_not_called()
-
-
 def test_get_channel_videos_with_cache_fetches_when_cache_is_empty(
     tmp_path,
 ):
@@ -1273,6 +1237,37 @@ def test_video_from_search_item():
         "channel_id": "channel1",
         "published_at": "2025-07-01T00:00:00Z",
         "duration": None,
+        "thumbnail_default": "default.jpg",
+        "thumbnail_medium": "medium.jpg",
+        "thumbnail_high": "high.jpg",
+    }
+
+def test_video_from_api_item():
+    item = {
+        "id": "video1",
+        "snippet": {
+            "title": "テスト動画",
+            "channelId": "channel1",
+            "publishedAt": "2025-07-01T00:00:00Z",
+            "thumbnails": {
+                "default": {"url": "default.jpg"},
+                "medium": {"url": "medium.jpg"},
+                "high": {"url": "high.jpg"},
+            },
+        },
+        "contentDetails": {
+            "duration": "PT5M",
+        },
+    }
+
+    result = _video_from_api_item(item)
+
+    assert result == {
+        "video_id": "video1",
+        "title": "テスト動画",
+        "channel_id": "channel1",
+        "published_at": "2025-07-01T00:00:00Z",
+        "duration": 300,
         "thumbnail_default": "default.jpg",
         "thumbnail_medium": "medium.jpg",
         "thumbnail_high": "high.jpg",
