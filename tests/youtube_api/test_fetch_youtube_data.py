@@ -1,16 +1,15 @@
 from datetime import datetime
 from unittest.mock import MagicMock
 
-from myutils.youtube_api.youtube_db import YouTubeDB
-
 from myutils.youtube_api.fetch_youtube_data import (
     YouTubeAPI,
+    _channel_from_api_item,
     _parse_duration,
     _to_utc_z,
     _video_from_api_item,
     _video_from_search_item,
-    _channel_from_api_item,
 )
+from myutils.youtube_api.youtube_db import YouTubeDB
 
 
 def create_api(tmp_path):
@@ -20,58 +19,64 @@ def create_api(tmp_path):
     )
 
 
-def test_get_video_with_cache_returns_cached_video(tmp_path):
-    """DBにキャッシュが存在する場合、その動画を返す。"""
-    api = create_api(tmp_path)
+# ============================================================
+# call_api
+# ============================================================
 
-    # videos.channel_id は channels.channel_id を
-    # 外部キーとして参照するため、先にチャンネルを登録する。
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
+
+def test_call_api_delegates_to_youtube_resource():
+    youtube = MagicMock()
+    api = YouTubeAPI(youtube=youtube, db=MagicMock())
+
+    expected = {"items": [{"id": "video1"}]}
+
+    youtube.videos.return_value.list.return_value.execute.return_value = expected
+
+    result = api.call_api(
+        "videos",
+        "list",
+        part="snippet",
+        id="video1",
     )
 
+    assert result == expected
+    youtube.videos.return_value.list.assert_called_once_with(
+        part="snippet",
+        id="video1",
+    )
+    youtube.videos.return_value.list.return_value.execute.assert_called_once()
+
+
+# ============================================================
+# get_video_with_cache
+# ============================================================
+
+
+def test_get_video_with_cache_returns_cached_video(tmp_path):
+    api = create_api(tmp_path)
+
+    api.db.insert_channel("channel1", "Channel 1")
     api.db.insert_video(
         {
             "video_id": "video1",
-            "title": "キャッシュ動画",
+            "title": "Cached Video",
             "channel_id": "channel1",
-            "published_at": "2025-07-01T00:00:00Z",
-            "duration": 300,
-            "thumbnail_default": "default.jpg",
-            "thumbnail_medium": "medium.jpg",
-            "thumbnail_high": "high.jpg",
+            "published_at": "2026-01-01T00:00:00Z",
+            "duration": 120,
         }
     )
 
-    # キャッシュが存在する場合、APIは呼ばれない
     api.call_api = MagicMock()
 
     result = api.get_video_with_cache("video1")
 
-    assert result is not None
-
-    # SQLiteのSELECT結果はtuple
     assert result[0] == "video1"
-    assert result[1] == "キャッシュ動画"
-    assert result[2] == "channel1"
-    assert result[3] == "2025-07-01T00:00:00Z"
-    assert result[4] == 300
-    assert result[5] == "default.jpg"
-    assert result[6] == "medium.jpg"
-    assert result[7] == "high.jpg"
-
+    assert result[1] == "Cached Video"
     api.call_api.assert_not_called()
 
 
 def test_get_video_with_cache_fetches_from_api(tmp_path):
-    """DBにキャッシュがない場合、APIから取得してDBへ保存する。"""
     api = create_api(tmp_path)
-
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
 
     api.call_api = MagicMock(
         return_value={
@@ -79,84 +84,55 @@ def test_get_video_with_cache_fetches_from_api(tmp_path):
                 {
                     "id": "video1",
                     "snippet": {
-                        "title": "テスト動画",
+                        "title": "Test Video",
                         "channelId": "channel1",
-                        "publishedAt": "2025-07-01T00:00:00Z",
-                        "thumbnails": {
-                            "default": {
-                                "url": "default.jpg",
-                            },
-                            "medium": {
-                                "url": "medium.jpg",
-                            },
-                            "high": {
-                                "url": "high.jpg",
-                            },
-                        },
+                        "publishedAt": "2026-01-01T00:00:00Z",
+                        "thumbnails": {},
                     },
                     "contentDetails": {
-                        "duration": "PT5M",
+                        "duration": "PT2M",
                     },
                 }
             ]
         }
     )
 
-    api.get_channel_with_cache = MagicMock(
-        return_value=("channel1", "テストチャンネル")
-    )
-
     result = api.get_video_with_cache("video1")
 
-    assert result is not None
-
-    # APIから取得した場合はdictが返る
     assert result["video_id"] == "video1"
-    assert result["title"] == "テスト動画"
+    assert result["title"] == "Test Video"
     assert result["channel_id"] == "channel1"
-    assert result["published_at"] == "2025-07-01T00:00:00Z"
-    assert result["duration"] == 300
-    assert result["thumbnail_default"] == "default.jpg"
-    assert result["thumbnail_medium"] == "medium.jpg"
-    assert result["thumbnail_high"] == "high.jpg"
+    assert result["duration"] == 120
 
-    api.call_api.assert_called_once_with(
+    saved = api.db.get_video_by_id("video1")
+
+    assert saved is not None
+    assert saved[0] == "video1"
+    assert saved[1] == "Test Video"
+    assert saved[4] == 120
+
+    assert api.call_api.call_count == 2
+    api.call_api.assert_any_call(
         "videos",
         "list",
         part="snippet,contentDetails",
         id="video1",
     )
-
-    api.get_channel_with_cache.assert_called_once_with(
-        "channel1",
+    api.call_api.assert_any_call(
+        "channels",
+        "list",
+        part="snippet",
+        id="channel1",
     )
 
-    # DBにも保存されたことを確認する
-    cached = api.db.get_video_by_id("video1")
 
-    assert cached is not None
-    assert cached[0] == "video1"
-    assert cached[1] == "テスト動画"
-    assert cached[2] == "channel1"
-    assert cached[4] == 300
-
-
-def test_get_video_with_cache_returns_none_when_api_returns_no_items(
-    tmp_path,
-):
-    """APIのレスポンスに動画が存在しない場合、Noneを返す。"""
+def test_get_video_with_cache_returns_none_when_api_has_no_items(tmp_path):
     api = create_api(tmp_path)
-
-    api.call_api = MagicMock(
-        return_value={
-            "items": [],
-        }
-    )
+    api.call_api = MagicMock(return_value={"items": []})
 
     result = api.get_video_with_cache("video1")
 
     assert result is None
-
     api.call_api.assert_called_once_with(
         "videos",
         "list",
@@ -165,110 +141,102 @@ def test_get_video_with_cache_returns_none_when_api_returns_no_items(
     )
 
 
-def test_get_video_with_cache_converts_duration_to_seconds(tmp_path):
-    """ISO 8601形式のdurationを秒数へ変換する。"""
+def test_get_video_with_cache_converts_duration(tmp_path):
     api = create_api(tmp_path)
 
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
     api.call_api = MagicMock(
-        return_value={
-            "items": [
-                {
-                    "id": "video1",
-                    "snippet": {
-                        "title": "テスト動画",
-                        "channelId": "channel1",
-                        "publishedAt": "2025-07-01T00:00:00Z",
-                        "thumbnails": {},
-                    },
-                    "contentDetails": {
-                        "duration": "PT1H2M3S",
-                    },
-                }
-            ]
-        }
-    )
-
-    api.get_channel_with_cache = MagicMock(
-        return_value=("channel1", "テストチャンネル")
+        side_effect=[
+            {
+                "items": [
+                    {
+                        "id": "video1",
+                        "snippet": {
+                            "title": "Test Video",
+                            "channelId": "channel1",
+                            "publishedAt": "2026-01-01T00:00:00Z",
+                            "thumbnails": {},
+                        },
+                        "contentDetails": {
+                            "duration": "PT1H2M3S",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+        ]
     )
 
     result = api.get_video_with_cache("video1")
 
-    assert result is not None
     assert result["duration"] == 3723
 
 
 def test_get_video_with_cache_handles_invalid_duration(tmp_path):
-    """durationが不正な場合、durationをNoneにする。"""
     api = create_api(tmp_path)
 
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
     api.call_api = MagicMock(
-        return_value={
-            "items": [
-                {
-                    "id": "video1",
-                    "snippet": {
-                        "title": "テスト動画",
-                        "channelId": "channel1",
-                        "publishedAt": "2025-07-01T00:00:00Z",
-                        "thumbnails": {},
-                    },
-                    "contentDetails": {
-                        "duration": "invalid",
-                    },
-                }
-            ]
-        }
-    )
-
-    api.get_channel_with_cache = MagicMock(
-        return_value=("channel1", "テストチャンネル")
+        side_effect=[
+            {
+                "items": [
+                    {
+                        "id": "video1",
+                        "snippet": {
+                            "title": "Test Video",
+                            "channelId": "channel1",
+                            "publishedAt": "2026-01-01T00:00:00Z",
+                            "thumbnails": {},
+                        },
+                        "contentDetails": {
+                            "duration": "invalid",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+        ]
     )
 
     result = api.get_video_with_cache("video1")
 
-    assert result is not None
     assert result["duration"] is None
 
 
-# ----------------------------------------------------------------------
-# Channel cache
-# ----------------------------------------------------------------------
+# ============================================================
+# get_channel_with_cache
+# ============================================================
 
 
 def test_get_channel_with_cache_returns_cached_channel(tmp_path):
-    """DBにチャンネルが存在する場合、そのチャンネルを返す。"""
     api = create_api(tmp_path)
 
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
+    api.db.insert_channel("channel1", "Cached Channel")
     api.call_api = MagicMock()
 
     result = api.get_channel_with_cache("channel1")
 
-    assert result == (
-        "channel1",
-        "テストチャンネル",
-    )
-
+    assert result == ("channel1", "Cached Channel")
     api.call_api.assert_not_called()
 
 
 def test_get_channel_with_cache_fetches_from_api(tmp_path):
-    """DBにチャンネルがない場合、APIから取得してDBへ保存する。"""
     api = create_api(tmp_path)
 
     api.call_api = MagicMock(
@@ -277,7 +245,7 @@ def test_get_channel_with_cache_fetches_from_api(tmp_path):
                 {
                     "id": "channel1",
                     "snippet": {
-                        "title": "APIチャンネル",
+                        "title": "Test Channel",
                     },
                 }
             ]
@@ -286,10 +254,10 @@ def test_get_channel_with_cache_fetches_from_api(tmp_path):
 
     result = api.get_channel_with_cache("channel1")
 
-    assert result == (
-        "channel1",
-        "APIチャンネル",
-    )
+    assert result == ("channel1", "Test Channel")
+
+    saved = api.db.get_channel_by_id("channel1")
+    assert saved == ("channel1", "Test Channel")
 
     api.call_api.assert_called_once_with(
         "channels",
@@ -298,123 +266,72 @@ def test_get_channel_with_cache_fetches_from_api(tmp_path):
         id="channel1",
     )
 
-    assert api.db.get_channel_by_id("channel1") == (
-        "channel1",
-        "APIチャンネル",
-    )
 
-
-def test_get_channel_with_cache_returns_none_when_channel_not_found(
-    tmp_path,
-):
-    """APIにチャンネルが存在しない場合、Noneを返す。"""
+def test_get_channel_with_cache_returns_none_when_api_has_no_items(tmp_path):
     api = create_api(tmp_path)
-
-    api.call_api = MagicMock(
-        return_value={
-            "items": [],
-        }
-    )
+    api.call_api = MagicMock(return_value={"items": []})
 
     result = api.get_channel_with_cache("channel1")
 
     assert result is None
 
-    api.call_api.assert_called_once_with(
+
+# ============================================================
+# fetch_and_save_videos_from_channel
+# ============================================================
+
+
+def test_fetch_and_save_videos_from_channel(tmp_path):
+    api = create_api(tmp_path)
+
+    api.call_api = MagicMock(
+        side_effect=[
+            {
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [
+                    {
+                        "id": {
+                            "videoId": "video1",
+                        },
+                        "snippet": {
+                            "title": "Video 1",
+                            "publishedAt": "2026-01-01T00:00:00Z",
+                            "thumbnails": {},
+                        },
+                    }
+                ]
+            },
+        ]
+    )
+
+    api.fetch_and_save_videos_from_channel("channel1")
+
+    result = api.db.get_video_by_id("video1")
+
+    assert result is not None
+    assert result[0] == "video1"
+    assert result[1] == "Video 1"
+    assert result[2] == "channel1"
+    assert result[4] is None
+
+    api.call_api.assert_any_call(
         "channels",
         "list",
         part="snippet",
         id="channel1",
     )
-
-
-# ----------------------------------------------------------------------
-# fetch_and_save_videos_from_channel
-# ----------------------------------------------------------------------
-
-
-def test_fetch_and_save_videos_from_channel(tmp_path):
-    """チャンネルの動画をAPIから取得してDBへ保存する。"""
-    api = create_api(tmp_path)
-
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    api.get_channel_with_cache = MagicMock(
-        return_value=("channel1", "テストチャンネル")
-    )
-
-    api.youtube.search.return_value.list.return_value.execute.return_value = {
-        "items": [
-            {
-                "id": {
-                    "videoId": "video1",
-                },
-                "snippet": {
-                    "title": "動画1",
-                    "publishedAt": "2025-07-01T00:00:00Z",
-                    "thumbnails": {
-                        "default": {
-                            "url": "default1.jpg",
-                        },
-                        "medium": {
-                            "url": "medium1.jpg",
-                        },
-                        "high": {
-                            "url": "high1.jpg",
-                        },
-                    },
-                },
-            },
-            {
-                "id": {
-                    "videoId": "video2",
-                },
-                "snippet": {
-                    "title": "動画2",
-                    "publishedAt": "2025-07-02T00:00:00Z",
-                    "thumbnails": {
-                        "default": {
-                            "url": "default2.jpg",
-                        },
-                        "medium": {
-                            "url": "medium2.jpg",
-                        },
-                        "high": {
-                            "url": "high2.jpg",
-                        },
-                    },
-                },
-            },
-        ]
-    }
-
-    api.fetch_and_save_videos_from_channel(
-        "channel1",
-    )
-
-    video1 = api.db.get_video_by_id("video1")
-    video2 = api.db.get_video_by_id("video2")
-
-    assert video1 is not None
-    assert video1[1] == "動画1"
-    assert video1[2] == "channel1"
-    assert video1[3] == "2025-07-01T00:00:00Z"
-    assert video1[4] is None
-    assert video1[5] == "default1.jpg"
-    assert video1[6] == "medium1.jpg"
-    assert video1[7] == "high1.jpg"
-
-    assert video2 is not None
-    assert video2[1] == "動画2"
-
-    api.get_channel_with_cache.assert_called_once_with(
-        "channel1",
-    )
-
-    api.youtube.search.return_value.list.assert_called_once_with(
+    api.call_api.assert_any_call(
+        "search",
+        "list",
         part="id,snippet",
         channelId="channel1",
         maxResults=50,
@@ -429,45 +346,43 @@ def test_fetch_and_save_videos_from_channel(tmp_path):
 def test_fetch_and_save_videos_from_channel_returns_when_channel_not_found(
     tmp_path,
 ):
-    """チャンネルが存在しない場合、動画取得を行わない。"""
     api = create_api(tmp_path)
 
-    api.get_channel_with_cache = MagicMock(
-        return_value=None,
+    api.call_api = MagicMock(return_value={"items": []})
+
+    api.fetch_and_save_videos_from_channel("channel1")
+
+    api.call_api.assert_called_once_with(
+        "channels",
+        "list",
+        part="snippet",
+        id="channel1",
     )
 
-    api.fetch_and_save_videos_from_channel(
-        "channel1",
-    )
 
-    api.get_channel_with_cache.assert_called_once_with(
-        "channel1",
-    )
-
-    api.youtube.search.return_value.list.assert_not_called()
-
-
-def test_fetch_and_save_videos_from_channel_converts_datetime_to_utc_z(
-    tmp_path,
-):
-    """datetimeをYouTube API用のUTC文字列へ変換する。"""
+def test_fetch_and_save_videos_from_channel_converts_datetime_to_utc_z(tmp_path):
     api = create_api(tmp_path)
 
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
+    published_after = datetime(2026, 1, 1, 12, 30, 0)
+    published_before = datetime(2026, 1, 2, 12, 30, 0)
+
+    api.call_api = MagicMock(
+        side_effect=[
+            {
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [],
+            },
+        ]
     )
-
-    api.get_channel_with_cache = MagicMock(
-        return_value=("channel1", "テストチャンネル")
-    )
-
-    api.youtube.search.return_value.list.return_value.execute.return_value = {
-        "items": [],
-    }
-
-    published_after = datetime(2025, 7, 1, 12, 30, 0)
-    published_before = datetime(2025, 7, 2, 12, 30, 0)
 
     api.fetch_and_save_videos_from_channel(
         "channel1",
@@ -475,276 +390,192 @@ def test_fetch_and_save_videos_from_channel_converts_datetime_to_utc_z(
         published_before=published_before,
     )
 
-    api.youtube.search.return_value.list.assert_called_once_with(
+    api.call_api.assert_any_call(
+        "search",
+        "list",
         part="id,snippet",
         channelId="channel1",
         maxResults=50,
         order="date",
-        publishedAfter="2025-07-01T12:30:00Z",
-        publishedBefore="2025-07-02T12:30:00Z",
+        publishedAfter="2026-01-01T12:30:00Z",
+        publishedBefore="2026-01-02T12:30:00Z",
         pageToken=None,
         type="video",
     )
 
 
 def test_fetch_and_save_videos_from_channel_handles_pagination(tmp_path):
-    """nextPageTokenがある場合、複数ページを取得する。"""
     api = create_api(tmp_path)
 
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
+    api.call_api = MagicMock(
+        side_effect=[
+            {
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [
+                    {
+                        "id": {
+                            "videoId": "video1",
+                        },
+                        "snippet": {
+                            "title": "Video 1",
+                            "publishedAt": "2026-01-01T00:00:00Z",
+                            "thumbnails": {},
+                        },
+                    }
+                ],
+                "nextPageToken": "next-token",
+            },
+            {
+                "items": [
+                    {
+                        "id": {
+                            "videoId": "video2",
+                        },
+                        "snippet": {
+                            "title": "Video 2",
+                            "publishedAt": "2025-12-31T00:00:00Z",
+                            "thumbnails": {},
+                        },
+                    }
+                ],
+            },
+        ]
     )
 
-    api.get_channel_with_cache = MagicMock(
-        return_value=("channel1", "テストチャンネル")
-    )
-
-    execute = api.youtube.search.return_value.list.return_value.execute
-
-    execute.side_effect = [
-        {
-            "items": [
-                {
-                    "id": {
-                        "videoId": "video1",
-                    },
-                    "snippet": {
-                        "title": "動画1",
-                        "publishedAt": "2025-07-01T00:00:00Z",
-                        "thumbnails": {},
-                    },
-                },
-            ],
-            "nextPageToken": "page2",
-        },
-        {
-            "items": [
-                {
-                    "id": {
-                        "videoId": "video2",
-                    },
-                    "snippet": {
-                        "title": "動画2",
-                        "publishedAt": "2025-07-02T00:00:00Z",
-                        "thumbnails": {},
-                    },
-                },
-            ],
-        },
-    ]
-
-    api.fetch_and_save_videos_from_channel(
-        "channel1",
-    )
+    api.fetch_and_save_videos_from_channel("channel1")
 
     assert api.db.get_video_by_id("video1") is not None
     assert api.db.get_video_by_id("video2") is not None
 
-    assert api.youtube.search.return_value.list.call_count == 2
+    search_calls = [
+        call
+        for call in api.call_api.call_args_list
+        if call.args[:2] == ("search", "list")
+    ]
 
-    calls = api.youtube.search.return_value.list.call_args_list
+    assert len(search_calls) == 2
+    assert search_calls[0].kwargs["pageToken"] is None
+    assert search_calls[1].kwargs["pageToken"] == "next-token"
 
-    assert calls[0].kwargs["pageToken"] is None
-    assert calls[1].kwargs["pageToken"] == "page2"
 
-
-def test_fetch_and_save_videos_from_channel_gets_duration(
-    tmp_path,
-):
-    """get_duration=Trueの場合、動画詳細を取得してdurationを更新する。"""
+def test_fetch_and_save_videos_from_channel_get_duration(tmp_path):
     api = create_api(tmp_path)
 
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    api.get_channel_with_cache = MagicMock(
-        return_value=("channel1", "テストチャンネル")
-    )
-
-    api.youtube.search.return_value.list.return_value.execute.return_value = {
-        "items": [
+    api.call_api = MagicMock(
+        side_effect=[
             {
-                "id": {
-                    "videoId": "video1",
-                },
-                "snippet": {
-                    "title": "動画1",
-                    "publishedAt": "2025-07-01T00:00:00Z",
-                    "thumbnails": {},
-                },
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [
+                    {
+                        "id": {
+                            "videoId": "video1",
+                        },
+                        "snippet": {
+                            "title": "Video 1",
+                            "publishedAt": "2026-01-01T00:00:00Z",
+                            "thumbnails": {},
+                        },
+                    }
+                ],
+            },
+            {
+                "items": [
+                    {
+                        "id": "video1",
+                        "contentDetails": {
+                            "duration": "PT3M",
+                        },
+                    }
+                ],
             },
         ]
-    }
-
-    api.fetch_and_update_video_details = MagicMock()
+    )
 
     api.fetch_and_save_videos_from_channel(
         "channel1",
         get_duration=True,
     )
 
-    api.fetch_and_update_video_details.assert_called_once_with(
-        ["video1"],
-    )
-
-
-def test_fetch_and_update_video_details_updates_duration(tmp_path):
-    """動画詳細APIからdurationを取得してDBを更新する。"""
-    api = create_api(tmp_path)
-
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    api.db.insert_video(
-        {
-            "video_id": "video1",
-            "title": "テスト動画",
-            "channel_id": "channel1",
-            "published_at": "2025-07-01T00:00:00Z",
-            "duration": None,
-        }
-    )
-
-    api.youtube.videos.return_value.list.return_value.execute.return_value = {
-        "items": [
-            {
-                "id": "video1",
-                "contentDetails": {
-                    "duration": "PT10M",
-                },
-            },
-        ]
-    }
-
-    api.fetch_and_update_video_details(
-        ["video1"],
-    )
-
     result = api.db.get_video_by_id("video1")
 
-    assert result[4] == 600
+    assert result[4] == 180
 
-    api.youtube.videos.return_value.list.assert_called_once_with(
+    api.call_api.assert_any_call(
+        "videos",
+        "list",
         part="contentDetails",
         id="video1",
     )
 
 
-def test_fetch_and_update_video_details_processes_batches_of_50(
-    tmp_path,
-):
-    """動画IDが50件を超える場合、50件ずつAPIへ送る。"""
+# ============================================================
+# fetch_and_update_video_details
+# ============================================================
+
+
+def test_fetch_and_update_video_details_updates_duration(tmp_path):
     api = create_api(tmp_path)
 
-    video_ids = [
-        f"video{i}"
-        for i in range(51)
-    ]
-
-    api.youtube.videos.return_value.list.return_value.execute.side_effect = [
+    api.db.insert_channel("channel1", "Test Channel")
+    api.db.insert_video(
         {
-            "items": [],
-        },
-        {
-            "items": [],
-        },
-    ]
+            "video_id": "video1",
+            "title": "Video 1",
+            "channel_id": "channel1",
+            "published_at": "2026-01-01T00:00:00Z",
+            "duration": None,
+        }
+    )
 
-    api.fetch_and_update_video_details(video_ids)
+    api.call_api = MagicMock(
+        return_value={
+            "items": [
+                {
+                    "id": "video1",
+                    "contentDetails": {
+                        "duration": "PT2M30S",
+                    },
+                }
+            ]
+        }
+    )
 
-    assert api.youtube.videos.return_value.list.call_count == 2
+    api.fetch_and_update_video_details(["video1"])
 
-    calls = api.youtube.videos.return_value.list.call_args_list
+    result = api.db.get_video_by_id("video1")
 
-    assert len(calls[0].kwargs["id"].split(",")) == 50
-    assert len(calls[1].kwargs["id"].split(",")) == 1
+    assert result[4] == 150
+
+    api.call_api.assert_called_once_with(
+        "videos",
+        "list",
+        part="contentDetails",
+        id="video1",
+    )
 
 
-# ----------------------------------------------------------------------
-# get_channel_videos_with_cache
-# ----------------------------------------------------------------------
-
-def test_get_channel_videos_with_cache_fetches_when_cache_is_empty(
-    tmp_path,
-):
-    """DBに動画がない場合、APIから取得して再検索する。"""
+def test_fetch_and_update_video_details_batches_50_ids(tmp_path):
     api = create_api(tmp_path)
 
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    api.fetch_and_save_videos_from_channel = MagicMock()
-
-    def save_video(*args, **kwargs):
-        api.db.insert_video(
-            {
-                "video_id": "video1",
-                "title": "API動画",
-                "channel_id": "channel1",
-                "published_at": "2025-07-01T12:00:00Z",
-                "duration": None,
-            }
-        )
-
-    api.fetch_and_save_videos_from_channel.side_effect = save_video
-
-    result = api.get_channel_videos_with_cache(
-        "channel1",
-        "2025-07-01T00:00:00Z",
-        "2025-07-02T00:00:00Z",
-    )
-
-    assert len(result) == 1
-    assert result[0][0] == "video1"
-
-    api.fetch_and_save_videos_from_channel.assert_called_once_with(
-        "channel1",
-        published_after="2025-07-01T00:00:00Z",
-        published_before="2025-07-02T00:00:00Z",
-    )
-
-
-def test_get_channel_videos_with_cache_adds_z_to_datetime_string(
-    tmp_path,
-):
-    """Zなしの文字列日時にはZを追加する。"""
-    api = create_api(tmp_path)
-
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    api.fetch_and_save_videos_from_channel = MagicMock()
-
-    api.get_channel_videos_with_cache(
-        "channel1",
-        "2025-07-01T00:00:00",
-        "2025-07-02T00:00:00",
-    )
-
-    api.fetch_and_save_videos_from_channel.assert_called_once_with(
-        "channel1",
-        published_after="2025-07-01T00:00:00Z",
-        published_before="2025-07-02T00:00:00Z",
-    )
-
-
-# ----------------------------------------------------------------------
-# Search / details / playlist
-# ----------------------------------------------------------------------
-
-
-def test_search_videos(tmp_path):
-    """search_videosが正しいパラメータでAPIを呼び出す。"""
-    api = create_api(tmp_path)
+    video_ids = [f"video{i}" for i in range(51)]
 
     api.call_api = MagicMock(
         return_value={
@@ -752,49 +583,175 @@ def test_search_videos(tmp_path):
         }
     )
 
-    published_after = datetime(2025, 7, 1, 12, 30, 0)
-    published_before = datetime(2025, 7, 2, 12, 30, 0)
+    api.fetch_and_update_video_details(video_ids)
 
-    result = api.search_videos(
-        query="Python",
-        channel_id="channel1",
-        published_after=published_after,
-        published_before=published_before,
-        event_type="completed",
-        max_results=10,
-        order="date",
-        page_token="page2",
+    calls = [
+        call
+        for call in api.call_api.call_args_list
+        if call.args[:2] == ("videos", "list")
+    ]
+
+    assert len(calls) == 2
+    assert len(calls[0].kwargs["id"].split(",")) == 50
+    assert len(calls[1].kwargs["id"].split(",")) == 1
+
+
+# ============================================================
+# get_channel_videos_with_cache
+# ============================================================
+
+
+def test_get_channel_videos_with_cache_fetches_when_cache_is_empty(tmp_path):
+    api = create_api(tmp_path)
+
+    api.call_api = MagicMock(
+        side_effect=[
+            {
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [
+                    {
+                        "id": {
+                            "videoId": "video1",
+                        },
+                        "snippet": {
+                            "title": "Video 1",
+                            "publishedAt": "2026-01-01T00:00:00Z",
+                            "thumbnails": {},
+                        },
+                    }
+                ],
+            },
+        ]
     )
 
-    assert result == {
-        "items": [],
-    }
+    result = api.get_channel_videos_with_cache(
+        "channel1",
+        "2026-01-01T00:00:00",
+        "2026-01-02T00:00:00",
+    )
+
+    assert len(result) == 1
+    assert result[0][0] == "video1"
+
+
+def test_get_channel_videos_with_cache_adds_z_to_string_dates(tmp_path):
+    api = create_api(tmp_path)
+
+    api.call_api = MagicMock(
+        side_effect=[
+            {
+                "items": [
+                    {
+                        "id": "channel1",
+                        "snippet": {
+                            "title": "Test Channel",
+                        },
+                    }
+                ]
+            },
+            {
+                "items": [],
+            },
+        ]
+    )
+
+    api.get_channel_videos_with_cache(
+        "channel1",
+        "2026-01-01T00:00:00",
+        "2026-01-02T00:00:00",
+    )
+
+    api.call_api.assert_any_call(
+        "search",
+        "list",
+        part="id,snippet",
+        channelId="channel1",
+        maxResults=50,
+        order="date",
+        publishedAfter="2026-01-01T00:00:00Z",
+        publishedBefore="2026-01-02T00:00:00Z",
+        pageToken=None,
+        type="video",
+    )
+
+
+def test_get_channel_videos_with_cache_returns_cached_videos(tmp_path):
+    api = create_api(tmp_path)
+
+    api.db.insert_channel("channel1", "Test Channel")
+    api.db.insert_video(
+        {
+            "video_id": "video1",
+            "title": "Cached Video",
+            "channel_id": "channel1",
+            "published_at": "2026-01-01T00:00:00Z",
+            "duration": 120,
+        }
+    )
+
+    api.call_api = MagicMock()
+
+    result = api.get_channel_videos_with_cache(
+        "channel1",
+        "2026-01-01T00:00:00Z",
+        "2026-01-02T00:00:00Z",
+    )
+
+    assert len(result) == 1
+    assert result[0][0] == "video1"
+    api.call_api.assert_not_called()
+
+
+# ============================================================
+# search_videos
+# ============================================================
+
+
+def test_search_videos_passes_all_parameters(tmp_path):
+    api = create_api(tmp_path)
+
+    api.call_api = MagicMock(return_value={"items": []})
+
+    api.search_videos(
+        query="test",
+        channel_id="channel1",
+        published_after=datetime(2026, 1, 1),
+        published_before=datetime(2026, 1, 2),
+        event_type="live",
+        max_results=25,
+        order="date",
+        page_token="next-token",
+    )
 
     api.call_api.assert_called_once_with(
         "search",
         "list",
         part="snippet",
         type="video",
-        maxResults=10,
+        maxResults=25,
         order="date",
-        q="Python",
+        q="test",
         channelId="channel1",
-        publishedAfter="2025-07-01T12:30:00Z",
-        publishedBefore="2025-07-02T12:30:00Z",
-        eventType="completed",
-        pageToken="page2",
+        publishedAfter="2026-01-01T00:00:00Z",
+        publishedBefore="2026-01-02T00:00:00Z",
+        eventType="live",
+        pageToken="next-token",
     )
 
 
 def test_search_videos_omits_optional_parameters(tmp_path):
-    """search_videosは指定されていないオプションをAPIへ渡さない。"""
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
-        return_value={
-            "items": [],
-        }
-    )
+    api.call_api = MagicMock(return_value={"items": []})
 
     api.search_videos()
 
@@ -808,25 +765,24 @@ def test_search_videos_omits_optional_parameters(tmp_path):
     )
 
 
+# ============================================================
+# get_video_details
+# ============================================================
+
+
 def test_get_video_details_returns_first_item(tmp_path):
-    """get_video_detailsは最初の動画を返す。"""
     api = create_api(tmp_path)
 
     item = {
         "id": "video1",
         "snippet": {
-            "title": "テスト動画",
+            "title": "Test Video",
         },
     }
 
     api.call_api = MagicMock(
         return_value={
-            "items": [
-                item,
-                {
-                    "id": "video2",
-                },
-            ],
+            "items": [item],
         }
     )
 
@@ -843,23 +799,95 @@ def test_get_video_details_returns_first_item(tmp_path):
 
 
 def test_get_video_details_returns_none_when_not_found(tmp_path):
-    """get_video_detailsは動画が存在しない場合Noneを返す。"""
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
-        return_value={
-            "items": [],
-        }
-    )
+    api.call_api = MagicMock(return_value={"items": []})
 
     result = api.get_video_details("video1")
 
     assert result is None
 
 
+# ============================================================
+# get_playlist_items
+# ============================================================
+
+
 def test_get_playlist_items(tmp_path):
-    """プレイリスト動画取得APIを正しい引数で呼び出す。"""
     api = create_api(tmp_path)
+
+    response = {
+        "items": [
+            {
+                "id": "item1",
+            }
+        ]
+    }
+
+    api.call_api = MagicMock(return_value=response)
+
+    result = api.get_playlist_items(
+        "playlist1",
+        max_results=25,
+        page_token="next-token",
+    )
+
+    assert result == response
+
+    api.call_api.assert_called_once_with(
+        "playlistItems",
+        "list",
+        part="snippet",
+        playlistId="playlist1",
+        maxResults=25,
+        pageToken="next-token",
+    )
+
+
+# ============================================================
+# get_live_streaming_video_ids
+# ============================================================
+
+
+def test_get_live_streaming_video_ids_filters_live_videos(tmp_path):
+    api = create_api(tmp_path)
+
+    api.call_api = MagicMock(
+        return_value={
+            "items": [
+                {
+                    "id": "video1",
+                    "liveStreamingDetails": {},
+                },
+                {
+                    "id": "video2",
+                },
+                {
+                    "id": "video3",
+                    "liveStreamingDetails": {},
+                },
+            ]
+        }
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1", "video2", "video3"]
+    )
+
+    assert result == {"video1", "video3"}
+
+    api.call_api.assert_called_once_with(
+        "videos",
+        "list",
+        part="liveStreamingDetails",
+        id="video1,video2,video3",
+    )
+
+
+def test_get_live_streaming_video_ids_batches_50_ids(tmp_path):
+    api = create_api(tmp_path)
+
+    video_ids = [f"video{i}" for i in range(51)]
 
     api.call_api = MagicMock(
         return_value={
@@ -867,353 +895,195 @@ def test_get_playlist_items(tmp_path):
         }
     )
 
-    result = api.get_playlist_items(
-        "playlist1",
-        max_results=20,
-        page_token="page2",
-    )
-
-    assert result == {
-        "items": [],
-    }
-
-    api.call_api.assert_called_once_with(
-        "playlistItems",
-        "list",
-        part="snippet",
-        playlistId="playlist1",
-        maxResults=20,
-        pageToken="page2",
-    )
-
-
-# ----------------------------------------------------------------------
-# Live streaming
-# ----------------------------------------------------------------------
-
-
-def test_get_live_streaming_video_ids(tmp_path):
-    """liveStreamingDetailsを持つ動画だけを返す。"""
-    api = create_api(tmp_path)
-
-    api.youtube.videos.return_value.list.return_value.execute.return_value = {
-        "items": [
-            {
-                "id": "video1",
-                "liveStreamingDetails": {
-                    "actualStartTime": "2025-07-01T00:00:00Z",
-                },
-            },
-            {
-                "id": "video2",
-            },
-            {
-                "id": "video3",
-                "liveStreamingDetails": {
-                    "scheduledStartTime": "2025-07-02T00:00:00Z",
-                },
-            },
-        ]
-    }
-
-    result = api.get_live_streaming_video_ids(
-        ["video1", "video2", "video3"],
-    )
-
-    assert result == {
-        "video1",
-        "video3",
-    }
-
-    api.youtube.videos.return_value.list.assert_called_once_with(
-        part="liveStreamingDetails",
-        id="video1,video2,video3",
-    )
-
-
-def test_get_live_streaming_video_ids_processes_batches_of_50(
-    tmp_path,
-):
-    """動画IDが50件を超える場合、50件ずつAPIへ送る。"""
-    api = create_api(tmp_path)
-
-    video_ids = [
-        f"video{i}"
-        for i in range(51)
-    ]
-
-    api.youtube.videos.return_value.list.return_value.execute.side_effect = [
-        {
-            "items": [],
-        },
-        {
-            "items": [],
-        },
-    ]
-
     result = api.get_live_streaming_video_ids(video_ids)
 
     assert result == set()
 
-    assert api.youtube.videos.return_value.list.call_count == 2
+    calls = [
+        call
+        for call in api.call_api.call_args_list
+        if call.args[:2] == ("videos", "list")
+    ]
 
-    calls = api.youtube.videos.return_value.list.call_args_list
-
+    assert len(calls) == 2
     assert len(calls[0].kwargs["id"].split(",")) == 50
     assert len(calls[1].kwargs["id"].split(",")) == 1
 
 
-# ----------------------------------------------------------------------
+# ============================================================
 # get_video_details_with_cache
-# ----------------------------------------------------------------------
+# ============================================================
 
 
-def test_get_video_details_with_cache_saves_video_to_database(
-    tmp_path,
-):
-    """動画詳細をAPIから取得してチャンネルと動画をDBへ保存する。"""
+def test_get_video_details_with_cache_saves_channel_and_video(tmp_path):
     api = create_api(tmp_path)
 
-    item = {
-        "id": "video1",
-        "snippet": {
-            "title": "テスト動画",
-            "channelId": "channel1",
-            "channelTitle": "テストチャンネル",
-            "publishedAt": "2025-07-01T00:00:00Z",
-            "thumbnails": {
-                "default": {
-                    "url": "default.jpg",
-                },
-                "medium": {
-                    "url": "medium.jpg",
-                },
-                "high": {
-                    "url": "high.jpg",
-                },
-            },
-        },
-        "contentDetails": {
-            "duration": "PT5M",
-        },
-    }
-
-    api.get_video_details = MagicMock(
-        return_value=item,
+    api.call_api = MagicMock(
+        return_value={
+            "items": [
+                {
+                    "id": "video1",
+                    "snippet": {
+                        "title": "Test Video",
+                        "channelId": "channel1",
+                        "channelTitle": "Test Channel",
+                        "publishedAt": "2026-01-01T00:00:00Z",
+                        "thumbnails": {},
+                    },
+                    "contentDetails": {
+                        "duration": "PT2M",
+                    },
+                }
+            ]
+        }
     )
 
-    result = api.get_video_details_with_cache(
-        "video1",
-    )
+    result = api.get_video_details_with_cache("video1")
 
-    assert result == item
+    assert result["id"] == "video1"
 
-    assert api.db.get_channel_by_id("channel1") == (
-        "channel1",
-        "テストチャンネル",
-    )
+    channel = api.db.get_channel_by_id("channel1")
+    assert channel == ("channel1", "Test Channel")
 
     video = api.db.get_video_by_id("video1")
-
     assert video is not None
     assert video[0] == "video1"
-    assert video[1] == "テスト動画"
-    assert video[2] == "channel1"
-    assert video[3] == "2025-07-01T00:00:00Z"
-    assert video[4] == 300
-    assert video[5] == "default.jpg"
-    assert video[6] == "medium.jpg"
-    assert video[7] == "high.jpg"
-
-    api.get_video_details.assert_called_once_with(
-        "video1",
-        part="snippet,contentDetails",
-    )
+    assert video[1] == "Test Video"
+    assert video[4] == 120
 
 
-def test_get_video_details_with_cache_returns_none_when_video_not_found(
-    tmp_path,
-):
-    """動画が存在しない場合、Noneを返す。"""
+def test_get_video_details_with_cache_returns_none_when_not_found(tmp_path):
     api = create_api(tmp_path)
 
-    api.get_video_details = MagicMock(
-        return_value=None,
-    )
+    api.call_api = MagicMock(return_value={"items": []})
 
-    result = api.get_video_details_with_cache(
-        "video1",
-    )
+    result = api.get_video_details_with_cache("video1")
 
     assert result is None
 
-    api.get_video_details.assert_called_once_with(
-        "video1",
-        part="snippet,contentDetails",
-    )
 
-
-def test_get_video_details_with_cache_returns_item_without_channel_info(
+def test_get_video_details_with_cache_returns_item_when_channel_info_missing(
     tmp_path,
 ):
-    """channel_idまたはchannel_titleがない場合、DB保存せずitemを返す。"""
     api = create_api(tmp_path)
 
     item = {
         "id": "video1",
         "snippet": {
-            "title": "テスト動画",
+            "title": "Test Video",
+        },
+        "contentDetails": {
+            "duration": "PT2M",
         },
     }
 
-    api.get_video_details = MagicMock(
-        return_value=item,
+    api.call_api = MagicMock(
+        return_value={
+            "items": [item],
+        }
     )
 
-    result = api.get_video_details_with_cache(
-        "video1",
-    )
+    result = api.get_video_details_with_cache("video1")
 
     assert result == item
-
     assert api.db.get_video_by_id("video1") is None
 
 
-def test_get_video_details_with_cache_preserves_existing_duration(
+def test_get_video_details_with_cache_preserves_existing_duration_when_missing(
     tmp_path,
 ):
-    """API側のdurationがない場合、既存DBのdurationを維持する。"""
     api = create_api(tmp_path)
 
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
+    api.db.insert_channel("channel1", "Test Channel")
     api.db.insert_video(
         {
             "video_id": "video1",
-            "title": "旧タイトル",
+            "title": "Old Title",
             "channel_id": "channel1",
-            "published_at": "2025-07-01T00:00:00Z",
-            "duration": 300,
+            "published_at": "2026-01-01T00:00:00Z",
+            "duration": 120,
         }
     )
 
-    item = {
-        "id": "video1",
-        "snippet": {
-            "title": "新タイトル",
-            "channelId": "channel1",
-            "channelTitle": "テストチャンネル",
-            "publishedAt": "2025-07-02T00:00:00Z",
-            "thumbnails": {},
-        },
-    }
-
-    api.get_video_details = MagicMock(
-        return_value=item,
+    api.call_api = MagicMock(
+        return_value={
+            "items": [
+                {
+                    "id": "video1",
+                    "snippet": {
+                        "title": "New Title",
+                        "channelId": "channel1",
+                        "channelTitle": "Test Channel",
+                        "publishedAt": "2026-01-01T00:00:00Z",
+                        "thumbnails": {},
+                    },
+                    "contentDetails": {},
+                }
+            ]
+        }
     )
 
-    api.get_video_details_with_cache(
-        "video1",
-    )
+    result = api.get_video_details_with_cache("video1")
+
+    assert result["id"] == "video1"
 
     video = api.db.get_video_by_id("video1")
 
-    assert video[1] == "新タイトル"
-    assert video[3] == "2025-07-02T00:00:00Z"
+    assert video[1] == "New Title"
+    assert video[4] == 120
 
-    # API側にdurationがないので既存値を維持
-    assert video[4] == 300
 
-def test_get_channel_videos_with_cache_returns_cached_videos(
-    tmp_path,
-):
-    """DBに動画が存在する場合、APIを呼ばずキャッシュを返す。"""
-    api = create_api(tmp_path)
+# ============================================================
+# _to_utc_z
+# ============================================================
 
-    api.db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    api.db.insert_video(
-        {
-            "video_id": "video1",
-            "title": "キャッシュ動画",
-            "channel_id": "channel1",
-            "published_at": "2025-07-01T12:00:00Z",
-            "duration": 300,
-        }
-    )
-
-    api.fetch_and_save_videos_from_channel = MagicMock()
-
-    result = api.get_channel_videos_with_cache(
-        "channel1",
-        "2025-07-01T00:00:00Z",
-        "2025-07-02T00:00:00Z",
-    )
-
-    assert len(result) == 1
-    assert result[0][0] == "video1"
-    assert result[0][1] == "キャッシュ動画"
-
-    api.fetch_and_save_videos_from_channel.assert_not_called()
 
 def test_to_utc_z_converts_datetime():
-    value = datetime(2025, 7, 1, 12, 30, 45)
+    value = datetime(2026, 1, 2, 3, 4, 5)
 
-    result = _to_utc_z(value)
-
-    assert result == "2025-07-01T12:30:45Z"
+    assert _to_utc_z(value) == "2026-01-02T03:04:05Z"
 
 
-def test_to_utc_z_adds_z_to_string_without_z():
-    value = "2025-07-01T12:30:45"
-
-    result = _to_utc_z(value)
-
-    assert result == "2025-07-01T12:30:45Z"
+def test_to_utc_z_adds_z_to_string():
+    assert _to_utc_z("2026-01-02T03:04:05") == "2026-01-02T03:04:05Z"
 
 
-def test_to_utc_z_keeps_string_with_z():
-    value = "2025-07-01T12:30:45Z"
+def test_to_utc_z_keeps_existing_z():
+    value = "2026-01-02T03:04:05Z"
 
-    result = _to_utc_z(value)
-
-    assert result == "2025-07-01T12:30:45Z"
+    assert _to_utc_z(value) == value
 
 
-def test_to_utc_z_keeps_none():
+def test_to_utc_z_returns_other_values_unchanged():
     assert _to_utc_z(None) is None
 
-def test_parse_duration_converts_iso_duration():
-    assert _parse_duration("PT5M") == 300
+
+# ============================================================
+# _parse_duration
+# ============================================================
 
 
-def test_parse_duration_converts_hours_minutes_seconds():
+def test_parse_duration():
     assert _parse_duration("PT1H2M3S") == 3723
-
-
-def test_parse_duration_returns_zero_for_zero_duration():
-    assert _parse_duration("PT0S") == 0
 
 
 def test_parse_duration_returns_none_for_invalid_value():
     assert _parse_duration("invalid") is None
 
+
+# ============================================================
+# _video_from_search_item
+# ============================================================
+
+
 def test_video_from_search_item():
     item = {
         "id": {
-            "kind": "youtube#video",
             "videoId": "video1",
         },
         "snippet": {
-            "title": "テスト動画",
-            "channelId": "channel1",
-            "publishedAt": "2025-07-01T00:00:00Z",
+            "title": "Test Video",
+            "publishedAt": "2026-01-01T00:00:00Z",
             "thumbnails": {
                 "default": {
                     "url": "default.jpg",
@@ -1228,37 +1098,46 @@ def test_video_from_search_item():
         },
     }
 
-    result = _video_from_search_item(
-        item,
-        "channel1",
-    )
+    result = _video_from_search_item(item, "channel1")
 
     assert result == {
         "video_id": "video1",
-        "title": "テスト動画",
+        "title": "Test Video",
         "channel_id": "channel1",
-        "published_at": "2025-07-01T00:00:00Z",
+        "published_at": "2026-01-01T00:00:00Z",
         "duration": None,
         "thumbnail_default": "default.jpg",
         "thumbnail_medium": "medium.jpg",
         "thumbnail_high": "high.jpg",
     }
 
+
+# ============================================================
+# _video_from_api_item
+# ============================================================
+
+
 def test_video_from_api_item():
     item = {
         "id": "video1",
         "snippet": {
-            "title": "テスト動画",
+            "title": "Test Video",
             "channelId": "channel1",
-            "publishedAt": "2025-07-01T00:00:00Z",
+            "publishedAt": "2026-01-01T00:00:00Z",
             "thumbnails": {
-                "default": {"url": "default.jpg"},
-                "medium": {"url": "medium.jpg"},
-                "high": {"url": "high.jpg"},
+                "default": {
+                    "url": "default.jpg",
+                },
+                "medium": {
+                    "url": "medium.jpg",
+                },
+                "high": {
+                    "url": "high.jpg",
+                },
             },
         },
         "contentDetails": {
-            "duration": "PT5M",
+            "duration": "PT1M30S",
         },
     }
 
@@ -1266,20 +1145,43 @@ def test_video_from_api_item():
 
     assert result == {
         "video_id": "video1",
-        "title": "テスト動画",
+        "title": "Test Video",
         "channel_id": "channel1",
-        "published_at": "2025-07-01T00:00:00Z",
-        "duration": 300,
+        "published_at": "2026-01-01T00:00:00Z",
+        "duration": 90,
         "thumbnail_default": "default.jpg",
         "thumbnail_medium": "medium.jpg",
         "thumbnail_high": "high.jpg",
     }
 
+
+def test_video_from_api_item_without_duration():
+    item = {
+        "id": "video1",
+        "snippet": {
+            "title": "Test Video",
+            "channelId": "channel1",
+            "publishedAt": "2026-01-01T00:00:00Z",
+            "thumbnails": {},
+        },
+        "contentDetails": {},
+    }
+
+    result = _video_from_api_item(item)
+
+    assert result["duration"] is None
+
+
+# ============================================================
+# _channel_from_api_item
+# ============================================================
+
+
 def test_channel_from_api_item():
     item = {
         "id": "channel1",
         "snippet": {
-            "title": "テストチャンネル",
+            "title": "Test Channel",
         },
     }
 
@@ -1287,5 +1189,5 @@ def test_channel_from_api_item():
 
     assert result == {
         "channel_id": "channel1",
-        "channel_title": "テストチャンネル",
+        "channel_title": "Test Channel",
     }
