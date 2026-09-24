@@ -9,6 +9,7 @@ from myutils.youtube_api.fetch_youtube_data import (
     _to_utc_z,
     _video_from_api_item,
     _video_from_search_item,
+    _channel_from_api_item,
 )
 
 
@@ -274,9 +275,10 @@ def test_get_channel_with_cache_fetches_from_api(tmp_path):
         return_value={
             "items": [
                 {
+                    "id": "channel1",
                     "snippet": {
                         "title": "APIチャンネル",
-                    }
+                    },
                 }
             ]
         }
@@ -1271,4 +1273,19 @@ def test_video_from_api_item():
         "thumbnail_default": "default.jpg",
         "thumbnail_medium": "medium.jpg",
         "thumbnail_high": "high.jpg",
+    }
+
+def test_channel_from_api_item():
+    item = {
+        "id": "channel1",
+        "snippet": {
+            "title": "テストチャンネル",
+        },
+    }
+
+    result = _channel_from_api_item(item)
+
+    assert result == {
+        "channel_id": "channel1",
+        "channel_title": "テストチャンネル",
     }

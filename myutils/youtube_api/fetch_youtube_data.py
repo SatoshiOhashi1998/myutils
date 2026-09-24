@@ -101,6 +101,14 @@ def _video_from_search_item(item, channel_id):
         "thumbnail_high": thumbnails.get("high", {}).get("url"),
     }
 
+def _channel_from_api_item(item):
+    snippet = item.get("snippet", {})
+
+    return {
+        "channel_id": item.get("id"),
+        "channel_title": snippet.get("title", ""),
+    }
+
 class YouTubeAPI:
     def __init__(self, youtube=None, db=None):
         self.youtube = (
@@ -161,12 +169,17 @@ class YouTubeAPI:
         if not items:
             return None
 
-        snippet = items[0]["snippet"]
-        title = snippet["title"]
+        channel = _channel_from_api_item(items[0])
 
-        self.db.insert_channel(channel_id, title)
+        self.db.insert_channel(
+            channel["channel_id"],
+            channel["channel_title"],
+        )
 
-        return (channel_id, title)
+        return (
+            channel["channel_id"],
+            channel["channel_title"],
+        )
 
     def fetch_and_save_videos_from_channel(self, channel_id, published_after=None, published_before=None, max_results=50, get_duration=False):
         channel_info = self.get_channel_with_cache(channel_id)
