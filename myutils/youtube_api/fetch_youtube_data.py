@@ -232,7 +232,6 @@ class YouTubeAPI:
         )
 
         if results:
-            print('from DB')
             return results
 
         # なければAPIから取得
@@ -242,17 +241,12 @@ class YouTubeAPI:
             published_before=end
         )
 
-        print('from api')
-
         # 再検索して返す
-        with self.db._connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM videos
-                WHERE channel_id = ? AND published_at BETWEEN ? AND ?
-                ORDER BY published_at DESC
-            """, (channel_id, start, end))
-            return cursor.fetchall()
+        return self.db.get_videos_by_channel_and_date(
+            channel_id,
+            start,
+            end,
+        )
 
     def fetch_and_update_video_details(self, video_ids):
         """動画のduration情報を取得してDBを更新"""
