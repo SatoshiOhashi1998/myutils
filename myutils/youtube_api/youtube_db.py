@@ -49,14 +49,14 @@ class YouTubeDB:
         conn.close()
 
     def insert_channel(self, channel_id, channel_title):
-        conn = self._connect()
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT OR IGNORE INTO channels (channel_id, channel_title)
-        VALUES (?, ?)
-        """, (channel_id, channel_title))
-        conn.commit()
-        conn.close()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO channels (channel_id, channel_title)
+                VALUES (?, ?)
+                """,
+                (channel_id, channel_title),
+            )
 
     def insert_video(self, video):
         conn = self._connect()
