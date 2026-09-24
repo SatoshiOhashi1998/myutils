@@ -191,8 +191,6 @@ class YouTubeDB:
                     video.get("thumbnail_high"),
                 ),
             )
-            conn.commit()
-            conn.close()
 
     def update_channel_tags(self, channel_id, tags):
         """
