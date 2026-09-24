@@ -84,6 +84,23 @@ def _video_from_api_item(item):
         ),
     }
 
+def _video_from_search_item(item, channel_id):
+    snippet = item.get("snippet", {})
+    video_id = item.get("id", {}).get("videoId")
+
+    thumbnails = snippet.get("thumbnails", {})
+
+    return {
+        "video_id": video_id,
+        "title": snippet.get("title", ""),
+        "channel_id": channel_id,
+        "published_at": snippet.get("publishedAt"),
+        "duration": None,
+        "thumbnail_default": thumbnails.get("default", {}).get("url"),
+        "thumbnail_medium": thumbnails.get("medium", {}).get("url"),
+        "thumbnail_high": thumbnails.get("high", {}).get("url"),
+    }
+
 class YouTubeAPI:
     def __init__(self, youtube=None, db=None):
         self.youtube = (
@@ -122,7 +139,7 @@ class YouTubeAPI:
         item = items[0]
 
         video = _video_from_api_item(item)
-        
+
         self.get_channel_with_cache(video["channel_id"])  # チャンネルも挿入
         self.db.insert_video(video)
         return video
