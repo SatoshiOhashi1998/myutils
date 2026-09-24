@@ -1,204 +1,168 @@
+import json
+
 from myutils.youtube_api.youtube_db import YouTubeDB
 
 
-def test_database_is_initialized(tmp_path):
-    db_path = tmp_path / "test.db"
+# ============================================================
+# Helpers
+# ============================================================
 
-    db = YouTubeDB(db_path)
+
+def create_db(tmp_path):
+    return YouTubeDB(tmp_path / "youtube.db")
+
+
+def create_channel(db, channel_id="channel1", channel_title="Test Channel"):
+    db.insert_channel(channel_id, channel_title)
+
+
+def create_video(
+    db,
+    video_id="video1",
+    title="Test Video",
+    channel_id="channel1",
+    published_at="2026-01-01T00:00:00Z",
+    duration=None,
+    thumbnail_default=None,
+    thumbnail_medium=None,
+    thumbnail_high=None,
+):
+    db.insert_video(
+        {
+            "video_id": video_id,
+            "title": title,
+            "channel_id": channel_id,
+            "published_at": published_at,
+            "duration": duration,
+            "thumbnail_default": thumbnail_default,
+            "thumbnail_medium": thumbnail_medium,
+            "thumbnail_high": thumbnail_high,
+        }
+    )
+
+
+# ============================================================
+# Initialization
+# ============================================================
+
+
+def test_db_initialization_creates_tables(tmp_path):
+    db = create_db(tmp_path)
 
     with db._connect() as conn:
-        tables = conn.execute(
-            """
-            SELECT name
-            FROM sqlite_master
-            WHERE type = 'table'
-            """
-        ).fetchall()
+        tables = {
+            row[0]
+            for row in conn.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                """
+            ).fetchall()
+        }
 
-    table_names = {row[0] for row in tables}
+    assert "channels" in tables
+    assert "videos" in tables
 
-    assert "channels" in table_names
-    assert "videos" in table_names
+
+def test_db_initialization_creates_tags_column(tmp_path):
+    db = create_db(tmp_path)
+
+    with db._connect() as conn:
+        columns = {
+            row[1]
+            for row in conn.execute(
+                "PRAGMA table_info(channels)"
+            ).fetchall()
+        }
+
+    assert "tags" in columns
+
+
+# ============================================================
+# insert_video / get_video_by_id
+# ============================================================
 
 
 def test_insert_and_get_video(tmp_path):
-    db_path = tmp_path / "test.db"
-    db = YouTubeDB(db_path)
+    db = create_db(tmp_path)
+    create_channel(db)
 
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
+    create_video(
+        db,
+        video_id="video1",
+        title="Test Video",
+        duration=120,
     )
-
-    video = {
-        "video_id": "video1",
-        "title": "テスト動画",
-        "channel_id": "channel1",
-        "published_at": "2025-07-01T00:00:00Z",
-        "duration": 300,
-        "thumbnail_default": "default.jpg",
-        "thumbnail_medium": "medium.jpg",
-        "thumbnail_high": "high.jpg",
-    }
-
-    db.insert_video(video)
 
     result = db.get_video_by_id("video1")
 
     assert result is not None
     assert result[0] == "video1"
-    assert result[1] == "テスト動画"
+    assert result[1] == "Test Video"
     assert result[2] == "channel1"
-    assert result[4] == 300
+    assert result[4] == 120
 
 
 def test_insert_video_does_not_duplicate(tmp_path):
-    db_path = tmp_path / "test.db"
-    db = YouTubeDB(db_path)
-
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
+    db = create_db(tmp_path)
+    create_channel(db)
 
     video = {
         "video_id": "video1",
-        "title": "テスト動画",
+        "title": "Original Title",
         "channel_id": "channel1",
-        "published_at": "2025-07-01T00:00:00Z",
-        "duration": 300,
+        "published_at": "2026-01-01T00:00:00Z",
+        "duration": 120,
     }
 
     db.insert_video(video)
-    db.insert_video(video)
-
-    with db._connect() as conn:
-        count = conn.execute(
-            "SELECT COUNT(*) FROM videos WHERE video_id = ?",
-            ("video1",),
-        ).fetchone()[0]
-
-    assert count == 1
-
-
-def test_update_video_duration(tmp_path):
-    db_path = tmp_path / "test.db"
-    db = YouTubeDB(db_path)
-
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
+    db.insert_video(
+        {
+            **video,
+            "title": "Updated Title",
+            "duration": 240,
+        }
     )
-
-    video = {
-        "video_id": "video1",
-        "title": "テスト動画",
-        "channel_id": "channel1",
-        "duration": None,
-    }
-
-    db.insert_video(video)
-
-    db.update_video_duration("video1", 600)
 
     result = db.get_video_by_id("video1")
 
-    assert result[4] == 600
+    assert result[1] == "Original Title"
+    assert result[4] == 120
 
 
-def test_search_channels_by_title(tmp_path):
-    db_path = tmp_path / "test.db"
-    db = YouTubeDB(db_path)
+def test_update_video_duration(tmp_path):
+    db = create_db(tmp_path)
+    create_channel(db)
 
-    db.insert_channel("channel1", "Pythonチャンネル")
-    db.insert_channel("channel2", "料理チャンネル")
-    db.insert_channel("channel3", "Python入門")
-
-    results = db.search_channels_by_title("Python")
-
-    assert len(results) == 2
-
-    channel_ids = {row[0] for row in results}
-
-    assert channel_ids == {"channel1", "channel3"}
-
-
-# ----------------------------------------------------------------------
-# Channel
-# ----------------------------------------------------------------------
-
-
-def test_insert_and_get_channel(tmp_path):
-    """チャンネルを登録してIDから取得できる。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
+    create_video(
+        db,
+        duration=None,
     )
 
-    result = db.get_channel_by_id("channel1")
+    db.update_video_duration("video1", 180)
 
-    assert result == (
-        "channel1",
-        "テストチャンネル",
-    )
+    result = db.get_video_by_id("video1")
 
-
-def test_get_channel_by_id_returns_none_when_not_found(tmp_path):
-    """存在しないチャンネルを取得するとNoneを返す。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    result = db.get_channel_by_id("channel1")
-
-    assert result is None
+    assert result[4] == 180
 
 
-def test_insert_channel_does_not_update_existing_channel(
-    tmp_path,
-):
-    """insert_channelは既存チャンネルを更新しない。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    db.insert_channel(
-        "channel1",
-        "旧チャンネル名",
-    )
-
-    db.insert_channel(
-        "channel1",
-        "新チャンネル名",
-    )
-
-    result = db.get_channel_by_id("channel1")
-
-    assert result == (
-        "channel1",
-        "旧チャンネル名",
-    )
-
-
-# ----------------------------------------------------------------------
-# Video upsert
-# ----------------------------------------------------------------------
+# ============================================================
+# upsert_video
+# ============================================================
 
 
 def test_upsert_video_inserts_new_video(tmp_path):
-    """upsert_videoは存在しない動画をINSERTする。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
+    db = create_db(tmp_path)
+    create_channel(db)
 
     db.upsert_video(
         {
             "video_id": "video1",
-            "title": "テスト動画",
+            "title": "Test Video",
             "channel_id": "channel1",
-            "published_at": "2025-07-01T00:00:00Z",
-            "duration": 300,
+            "published_at": "2026-01-01T00:00:00Z",
+            "duration": 120,
         }
     )
 
@@ -206,318 +170,301 @@ def test_upsert_video_inserts_new_video(tmp_path):
 
     assert result is not None
     assert result[0] == "video1"
-    assert result[1] == "テスト動画"
-    assert result[4] == 300
+    assert result[1] == "Test Video"
+    assert result[2] == "channel1"
+    assert result[4] == 120
 
 
 def test_upsert_video_updates_existing_video(tmp_path):
-    """upsert_videoは既存動画をUPDATEする。"""
-    db = YouTubeDB(tmp_path / "test.db")
+    db = create_db(tmp_path)
+    create_channel(db)
 
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    db.insert_video(
-        {
-            "video_id": "video1",
-            "title": "旧タイトル",
-            "channel_id": "channel1",
-            "published_at": "2025-07-01T00:00:00Z",
-            "duration": 300,
-        }
+    create_video(
+        db,
+        title="Old Title",
+        published_at="2026-01-01T00:00:00Z",
+        duration=120,
     )
 
     db.upsert_video(
         {
             "video_id": "video1",
-            "title": "新タイトル",
+            "title": "New Title",
             "channel_id": "channel1",
-            "published_at": "2025-07-02T00:00:00Z",
-            "duration": 600,
+            "published_at": "2026-01-02T00:00:00Z",
+            "duration": 240,
         }
     )
 
     result = db.get_video_by_id("video1")
 
-    assert result is not None
-    assert result[1] == "新タイトル"
-    assert result[2] == "channel1"
-    assert result[3] == "2025-07-02T00:00:00Z"
-    assert result[4] == 600
+    assert result[1] == "New Title"
+    assert result[3] == "2026-01-02T00:00:00Z"
+    assert result[4] == 240
 
 
 def test_upsert_video_preserves_existing_duration_when_new_duration_is_none(
     tmp_path,
 ):
-    """upsert時のdurationがNoneなら既存durationを維持する。"""
-    db = YouTubeDB(tmp_path / "test.db")
+    db = create_db(tmp_path)
+    create_channel(db)
 
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    db.insert_video(
-        {
-            "video_id": "video1",
-            "title": "旧タイトル",
-            "channel_id": "channel1",
-            "published_at": "2025-07-01T00:00:00Z",
-            "duration": 300,
-        }
+    create_video(
+        db,
+        duration=120,
     )
 
     db.upsert_video(
         {
             "video_id": "video1",
-            "title": "新タイトル",
+            "title": "Updated Title",
             "channel_id": "channel1",
-            "published_at": "2025-07-02T00:00:00Z",
+            "published_at": "2026-01-01T00:00:00Z",
             "duration": None,
         }
     )
 
     result = db.get_video_by_id("video1")
 
-    assert result[1] == "新タイトル"
-    assert result[4] == 300
+    assert result[1] == "Updated Title"
+    assert result[4] == 120
 
 
-# ----------------------------------------------------------------------
-# Videos by channel and date
-# ----------------------------------------------------------------------
+def test_upsert_video_updates_thumbnails(tmp_path):
+    db = create_db(tmp_path)
+    create_channel(db)
 
-
-def test_get_videos_by_channel_and_date(tmp_path):
-    """指定チャンネル・期間の動画を取得する。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
+    create_video(
+        db,
+        thumbnail_default="old-default.jpg",
+        thumbnail_medium="old-medium.jpg",
+        thumbnail_high="old-high.jpg",
     )
 
-    db.insert_video(
+    db.upsert_video(
         {
             "video_id": "video1",
-            "title": "動画1",
+            "title": "Updated Video",
             "channel_id": "channel1",
-            "published_at": "2025-07-01T00:00:00Z",
+            "published_at": "2026-01-01T00:00:00Z",
+            "duration": 120,
+            "thumbnail_default": "new-default.jpg",
+            "thumbnail_medium": "new-medium.jpg",
+            "thumbnail_high": "new-high.jpg",
         }
     )
 
-    db.insert_video(
-        {
-            "video_id": "video2",
-            "title": "動画2",
-            "channel_id": "channel1",
-            "published_at": "2025-07-01T12:00:00Z",
-        }
+    result = db.get_video_by_id("video1")
+
+    assert result[5] == "new-default.jpg"
+    assert result[6] == "new-medium.jpg"
+    assert result[7] == "new-high.jpg"
+
+
+# ============================================================
+# search_channels_by_title
+# ============================================================
+
+
+def test_search_channels_by_title(tmp_path):
+    db = create_db(tmp_path)
+
+    db.insert_channel("channel1", "Test Channel")
+    db.insert_channel("channel2", "Another Channel")
+    db.insert_channel("channel3", "Completely Different")
+
+    result = db.search_channels_by_title("Channel")
+
+    assert ("channel1", "Test Channel") in result
+    assert ("channel2", "Another Channel") in result
+    assert ("channel3", "Completely Different") not in result
+
+
+# ============================================================
+# insert_channel / get_channel_by_id
+# ============================================================
+
+
+def test_insert_and_get_channel(tmp_path):
+    db = create_db(tmp_path)
+
+    db.insert_channel("channel1", "Test Channel")
+
+    result = db.get_channel_by_id("channel1")
+
+    assert result == ("channel1", "Test Channel")
+
+
+def test_get_channel_by_id_returns_none_when_not_found(tmp_path):
+    db = create_db(tmp_path)
+
+    result = db.get_channel_by_id("unknown")
+
+    assert result is None
+
+
+def test_insert_channel_does_not_update_existing_channel(tmp_path):
+    db = create_db(tmp_path)
+
+    db.insert_channel("channel1", "Original Title")
+    db.insert_channel("channel1", "Updated Title")
+
+    result = db.get_channel_by_id("channel1")
+
+    assert result == ("channel1", "Original Title")
+
+
+# ============================================================
+# get_videos_by_channel_and_date
+# ============================================================
+
+
+def test_get_videos_by_channel_and_date_filters_channel_and_date(tmp_path):
+    db = create_db(tmp_path)
+
+    create_channel(db, "channel1", "Channel 1")
+    create_channel(db, "channel2", "Channel 2")
+
+    create_video(
+        db,
+        video_id="video1",
+        title="Video 1",
+        channel_id="channel1",
+        published_at="2026-01-01T10:00:00Z",
     )
-
-    db.insert_video(
-        {
-            "video_id": "video3",
-            "title": "動画3",
-            "channel_id": "channel1",
-            "published_at": "2025-07-02T00:00:00Z",
-        }
+    create_video(
+        db,
+        video_id="video2",
+        title="Video 2",
+        channel_id="channel1",
+        published_at="2026-01-02T10:00:00Z",
     )
-
-    results = db.get_videos_by_channel_and_date(
-        "channel1",
-        "2025-07-01T00:00:00Z",
-        "2025-07-02T00:00:00Z",
+    create_video(
+        db,
+        video_id="video3",
+        title="Video 3",
+        channel_id="channel1",
+        published_at="2026-01-03T10:00:00Z",
     )
-
-    assert len(results) == 2
-
-    assert [row[0] for row in results] == [
-        "video2",
-        "video1",
-    ]
-
-
-def test_get_videos_by_channel_and_date_excludes_end_date(
-    tmp_path,
-):
-    """end_dateは含まれない。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
+    create_video(
+        db,
+        video_id="video4",
+        title="Video 4",
+        channel_id="channel2",
+        published_at="2026-01-02T10:00:00Z",
     )
-
-    db.insert_video(
-        {
-            "video_id": "video1",
-            "title": "動画1",
-            "channel_id": "channel1",
-            "published_at": "2025-07-02T00:00:00Z",
-        }
-    )
-
-    results = db.get_videos_by_channel_and_date(
-        "channel1",
-        "2025-07-01T00:00:00Z",
-        "2025-07-02T00:00:00Z",
-    )
-
-    assert results == []
-
-
-def test_get_videos_by_channel_and_date_does_not_return_other_channel(
-    tmp_path,
-):
-    """指定したchannel_id以外の動画は取得しない。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    db.insert_channel(
-        "channel1",
-        "チャンネル1",
-    )
-
-    db.insert_channel(
-        "channel2",
-        "チャンネル2",
-    )
-
-    db.insert_video(
-        {
-            "video_id": "video1",
-            "title": "動画1",
-            "channel_id": "channel1",
-            "published_at": "2025-07-01T12:00:00Z",
-        }
-    )
-
-    db.insert_video(
-        {
-            "video_id": "video2",
-            "title": "動画2",
-            "channel_id": "channel2",
-            "published_at": "2025-07-01T12:00:00Z",
-        }
-    )
-
-    results = db.get_videos_by_channel_and_date(
-        "channel1",
-        "2025-07-01T00:00:00Z",
-        "2025-07-02T00:00:00Z",
-    )
-
-    assert len(results) == 1
-    assert results[0][0] == "video1"
-
-
-# ----------------------------------------------------------------------
-# Channel tags
-# ----------------------------------------------------------------------
-
-
-def test_update_and_get_channel_tags(tmp_path):
-    """チャンネルのタグを保存して取得できる。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    db.update_channel_tags(
-        "channel1",
-        [
-            "VTuber",
-            "ゲーム",
-            "配信",
-        ],
-    )
-
-    result = db.get_channel_tags("channel1")
-
-    assert result == [
-        "VTuber",
-        "ゲーム",
-        "配信",
-    ]
-
-
-def test_get_channel_tags_returns_empty_list_when_not_set(
-    tmp_path,
-):
-    """タグ未設定の場合は空リストを返す。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    result = db.get_channel_tags("channel1")
-
-    assert result == []
-
-
-def test_get_channel_tags_returns_empty_list_when_channel_not_found(
-    tmp_path,
-):
-    """存在しないチャンネルのタグ取得は空リストを返す。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    result = db.get_channel_tags("channel1")
-
-    assert result == []
-
-def test_get_videos_by_channel_and_date_uses_end_exclusive_range(
-    tmp_path,
-):
-    """動画検索の終了日時は範囲に含まれない。"""
-    db = YouTubeDB(tmp_path / "test.db")
-
-    db.insert_channel(
-        "channel1",
-        "テストチャンネル",
-    )
-
-    videos = [
-        {
-            "video_id": "video1",
-            "title": "開始時刻ちょうど",
-            "channel_id": "channel1",
-            "published_at": "2025-07-01T00:00:00Z",
-            "duration": None,
-        },
-        {
-            "video_id": "video2",
-            "title": "期間内",
-            "channel_id": "channel1",
-            "published_at": "2025-07-01T12:00:00Z",
-            "duration": None,
-        },
-        {
-            "video_id": "video3",
-            "title": "終了時刻ちょうど",
-            "channel_id": "channel1",
-            "published_at": "2025-07-02T00:00:00Z",
-            "duration": None,
-        },
-    ]
-
-    for video in videos:
-        db.insert_video(video)
 
     result = db.get_videos_by_channel_and_date(
         "channel1",
-        "2025-07-01T00:00:00Z",
-        "2025-07-02T00:00:00Z",
+        "2026-01-01T00:00:00Z",
+        "2026-01-03T00:00:00Z",
     )
 
     video_ids = [row[0] for row in result]
 
-    assert video_ids == [
-        "video2",
-        "video1",
-    ]
+    assert video_ids == ["video2", "video1"]
+
+
+def test_get_videos_by_channel_and_date_uses_end_exclusive_range(tmp_path):
+    db = create_db(tmp_path)
+    create_channel(db)
+
+    create_video(
+        db,
+        video_id="video1",
+        published_at="2026-01-01T00:00:00Z",
+    )
+    create_video(
+        db,
+        video_id="video2",
+        published_at="2026-01-02T00:00:00Z",
+    )
+
+    result = db.get_videos_by_channel_and_date(
+        "channel1",
+        "2026-01-01T00:00:00Z",
+        "2026-01-02T00:00:00Z",
+    )
+
+    video_ids = [row[0] for row in result]
+
+    assert video_ids == ["video1"]
+
+
+def test_get_videos_by_channel_and_date_orders_newest_first(tmp_path):
+    db = create_db(tmp_path)
+    create_channel(db)
+
+    create_video(
+        db,
+        video_id="video1",
+        published_at="2026-01-01T00:00:00Z",
+    )
+    create_video(
+        db,
+        video_id="video2",
+        published_at="2026-01-03T00:00:00Z",
+    )
+    create_video(
+        db,
+        video_id="video3",
+        published_at="2026-01-02T00:00:00Z",
+    )
+
+    result = db.get_videos_by_channel_and_date(
+        "channel1",
+        "2026-01-01T00:00:00Z",
+        "2026-01-04T00:00:00Z",
+    )
+
+    video_ids = [row[0] for row in result]
+
+    assert video_ids == ["video2", "video3", "video1"]
+
+
+# ============================================================
+# Channel tags
+# ============================================================
+
+
+def test_update_and_get_channel_tags(tmp_path):
+    db = create_db(tmp_path)
+    create_channel(db)
+
+    tags = ["music", "live", "推し"]
+
+    db.update_channel_tags("channel1", tags)
+
+    assert db.get_channel_tags("channel1") == tags
+
+
+def test_get_channel_tags_returns_empty_list_when_tags_are_unset(tmp_path):
+    db = create_db(tmp_path)
+    create_channel(db)
+
+    assert db.get_channel_tags("channel1") == []
+
+
+def test_get_channel_tags_returns_empty_list_when_channel_does_not_exist(
+    tmp_path,
+):
+    db = create_db(tmp_path)
+
+    assert db.get_channel_tags("unknown") == []
+
+
+def test_update_channel_tags_stores_json(tmp_path):
+    db = create_db(tmp_path)
+    create_channel(db)
+
+    tags = ["music", "日本語", "ライブ"]
+
+    db.update_channel_tags("channel1", tags)
+
+    with db._connect() as conn:
+        row = conn.execute(
+            "SELECT tags FROM channels WHERE channel_id = ?",
+            ("channel1",),
+        ).fetchone()
+
+    assert json.loads(row[0]) == tags
