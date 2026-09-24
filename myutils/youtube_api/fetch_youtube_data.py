@@ -259,10 +259,12 @@ class YouTubeAPI:
         for i in range(0, len(video_ids), 50):
             batch_ids = video_ids[i:i+50]
 
-            response = self.youtube.videos().list(
+            response = self.call_api(
+                "videos",
+                "list",
                 part="contentDetails",
-                id=",".join(batch_ids)
-            ).execute()
+                id=",".join(batch_ids),
+            )
 
             for item in response.get("items", []):
                 vid = item["id"]
