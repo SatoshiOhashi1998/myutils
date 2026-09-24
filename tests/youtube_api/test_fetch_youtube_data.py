@@ -1129,6 +1129,25 @@ def test_video_from_search_item():
 # _video_from_api_item
 # ============================================================
 
+def test_video_from_api_item_handles_missing_fields():
+    item = {
+        "id": "video1",
+        "snippet": {},
+        "contentDetails": {},
+    }
+
+    result = _video_from_api_item(item)
+
+    assert result == {
+        "video_id": "video1",
+        "title": "",
+        "channel_id": None,
+        "published_at": None,
+        "duration": None,
+        "thumbnail_default": None,
+        "thumbnail_medium": None,
+        "thumbnail_high": None,
+    }
 
 def test_video_from_api_item():
     item = {
