@@ -30,29 +30,6 @@ def _chunks(values, size):
 
 
 # =============================================
-# API Response Converters
-# =============================================
-def _video_data(
-    video_id,
-    snippet,
-    channel_id=None,
-    duration=None,
-):
-    thumbnails = snippet.get("thumbnails", {})
-
-    return {
-        "video_id": video_id,
-        "title": snippet.get("title", ""),
-        "channel_id": channel_id,
-        "published_at": snippet.get("publishedAt"),
-        "duration": duration,
-        "thumbnail_default": thumbnails.get("default", {}).get("url"),
-        "thumbnail_medium": thumbnails.get("medium", {}).get("url"),
-        "thumbnail_high": thumbnails.get("high", {}).get("url"),
-    }
-
-
-# =============================================
 # YouTube API
 # =============================================
 
