@@ -19,37 +19,9 @@ from myutils.youtube_api.youtube_db import YouTubeDB
 
 def create_api(tmp_path):
     return YouTubeAPI(
-        youtube=MagicMock(),
+        client=MagicMock(),
         db=YouTubeDB(tmp_path / "youtube.db"),
     )
-
-
-# ============================================================
-# call_api
-# ============================================================
-
-
-def test_call_api_delegates_to_youtube_resource():
-    youtube = MagicMock()
-    api = YouTubeAPI(youtube=youtube, db=MagicMock())
-
-    expected = {"items": [{"id": "video1"}]}
-
-    youtube.videos.return_value.list.return_value.execute.return_value = expected
-
-    result = api.call_api(
-        "videos",
-        "list",
-        part="snippet",
-        id="video1",
-    )
-
-    assert result == expected
-    youtube.videos.return_value.list.assert_called_once_with(
-        part="snippet",
-        id="video1",
-    )
-    youtube.videos.return_value.list.return_value.execute.assert_called_once()
 
 
 # ============================================================
@@ -71,19 +43,19 @@ def test_get_video_with_cache_returns_cached_video(tmp_path):
         }
     )
 
-    api.call_api = MagicMock()
+    api.client.call = MagicMock()
 
     result = api.get_video_with_cache("video1")
 
     assert result[0] == "video1"
     assert result[1] == "Cached Video"
-    api.call_api.assert_not_called()
+    api.client.call.assert_not_called()
 
 
 def test_get_video_with_cache_fetches_from_api(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -128,14 +100,14 @@ def test_get_video_with_cache_fetches_from_api(tmp_path):
     assert saved[1] == "Test Video"
     assert saved[4] == 120
 
-    assert api.call_api.call_count == 2
-    api.call_api.assert_any_call(
+    assert api.client.call.call_count == 2
+    api.client.call.assert_any_call(
         "videos",
         "list",
         part="snippet,contentDetails",
         id="video1",
     )
-    api.call_api.assert_any_call(
+    api.client.call.assert_any_call(
         "channels",
         "list",
         part="snippet",
@@ -148,7 +120,7 @@ def test_get_video_with_cache_uses_cached_channel(tmp_path):
 
     api.db.insert_channel("channel1", "Cached Channel")
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [
                 {
@@ -172,7 +144,7 @@ def test_get_video_with_cache_uses_cached_channel(tmp_path):
     assert result["video_id"] == "video1"
     assert result["title"] == "Test Video"
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "videos",
         "list",
         part="snippet,contentDetails",
@@ -182,12 +154,12 @@ def test_get_video_with_cache_uses_cached_channel(tmp_path):
 
 def test_get_video_with_cache_returns_none_when_api_has_no_items(tmp_path):
     api = create_api(tmp_path)
-    api.call_api = MagicMock(return_value={"items": []})
+    api.client.call = MagicMock(return_value={"items": []})
 
     result = api.get_video_with_cache("video1")
 
     assert result is None
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "videos",
         "list",
         part="snippet,contentDetails",
@@ -198,7 +170,7 @@ def test_get_video_with_cache_returns_none_when_api_has_no_items(tmp_path):
 def test_get_video_with_cache_converts_duration(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -237,7 +209,7 @@ def test_get_video_with_cache_converts_duration(tmp_path):
 def test_get_video_with_cache_handles_invalid_duration(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -282,18 +254,18 @@ def test_get_channel_with_cache_returns_cached_channel(tmp_path):
     api = create_api(tmp_path)
 
     api.db.insert_channel("channel1", "Cached Channel")
-    api.call_api = MagicMock()
+    api.client.call = MagicMock()
 
     result = api.get_channel_with_cache("channel1")
 
     assert result == ("channel1", "Cached Channel")
-    api.call_api.assert_not_called()
+    api.client.call.assert_not_called()
 
 
 def test_get_channel_with_cache_fetches_from_api(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [
                 {
@@ -313,7 +285,7 @@ def test_get_channel_with_cache_fetches_from_api(tmp_path):
     saved = api.db.get_channel_by_id("channel1")
     assert saved == ("channel1", "Test Channel")
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "channels",
         "list",
         part="snippet",
@@ -323,7 +295,7 @@ def test_get_channel_with_cache_fetches_from_api(tmp_path):
 
 def test_get_channel_with_cache_returns_none_when_api_has_no_items(tmp_path):
     api = create_api(tmp_path)
-    api.call_api = MagicMock(return_value={"items": []})
+    api.client.call = MagicMock(return_value={"items": []})
 
     result = api.get_channel_with_cache("channel1")
 
@@ -338,7 +310,7 @@ def test_get_channel_with_cache_returns_none_when_api_has_no_items(tmp_path):
 def test_fetch_and_save_videos_from_channel(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -377,13 +349,13 @@ def test_fetch_and_save_videos_from_channel(tmp_path):
     assert result[2] == "channel1"
     assert result[4] is None
 
-    api.call_api.assert_any_call(
+    api.client.call.assert_any_call(
         "channels",
         "list",
         part="snippet",
         id="channel1",
     )
-    api.call_api.assert_any_call(
+    api.client.call.assert_any_call(
         "search",
         "list",
         part="id,snippet",
@@ -402,11 +374,11 @@ def test_fetch_and_save_videos_from_channel_returns_when_channel_not_found(
 ):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(return_value={"items": []})
+    api.client.call = MagicMock(return_value={"items": []})
 
     api.fetch_and_save_videos_from_channel("channel1")
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "channels",
         "list",
         part="snippet",
@@ -420,7 +392,7 @@ def test_fetch_and_save_videos_from_channel_converts_datetime_to_utc_z(tmp_path)
     published_after = datetime(2026, 1, 1, 12, 30, 0)
     published_before = datetime(2026, 1, 2, 12, 30, 0)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -444,7 +416,7 @@ def test_fetch_and_save_videos_from_channel_converts_datetime_to_utc_z(tmp_path)
         published_before=published_before,
     )
 
-    api.call_api.assert_any_call(
+    api.client.call.assert_any_call(
         "search",
         "list",
         part="id,snippet",
@@ -461,7 +433,7 @@ def test_fetch_and_save_videos_from_channel_converts_datetime_to_utc_z(tmp_path)
 def test_fetch_and_save_videos_from_channel_handles_pagination(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -512,7 +484,7 @@ def test_fetch_and_save_videos_from_channel_handles_pagination(tmp_path):
 
     search_calls = [
         call
-        for call in api.call_api.call_args_list
+        for call in api.client.call.call_args_list
         if call.args[:2] == ("search", "list")
     ]
 
@@ -524,7 +496,7 @@ def test_fetch_and_save_videos_from_channel_handles_pagination(tmp_path):
 def test_fetch_and_save_videos_from_channel_get_duration(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -572,7 +544,7 @@ def test_fetch_and_save_videos_from_channel_get_duration(tmp_path):
 
     assert result[4] == 180
 
-    api.call_api.assert_any_call(
+    api.client.call.assert_any_call(
         "videos",
         "list",
         part="contentDetails",
@@ -599,7 +571,7 @@ def test_fetch_and_update_video_details_updates_duration(tmp_path):
         }
     )
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [
                 {
@@ -618,7 +590,7 @@ def test_fetch_and_update_video_details_updates_duration(tmp_path):
 
     assert result[4] == 150
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "videos",
         "list",
         part="contentDetails",
@@ -631,7 +603,7 @@ def test_fetch_and_update_video_details_batches_50_ids(tmp_path):
 
     video_ids = [f"video{i}" for i in range(51)]
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [],
         }
@@ -641,7 +613,7 @@ def test_fetch_and_update_video_details_batches_50_ids(tmp_path):
 
     calls = [
         call
-        for call in api.call_api.call_args_list
+        for call in api.client.call.call_args_list
         if call.args[:2] == ("videos", "list")
     ]
 
@@ -653,11 +625,11 @@ def test_fetch_and_update_video_details_batches_50_ids(tmp_path):
 def test_fetch_and_update_video_details_does_nothing_for_empty_ids(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock()
+    api.client.call = MagicMock()
 
     api.fetch_and_update_video_details([])
 
-    api.call_api.assert_not_called()
+    api.client.call.assert_not_called()
 
 
 # ============================================================
@@ -668,7 +640,7 @@ def test_fetch_and_update_video_details_does_nothing_for_empty_ids(tmp_path):
 def test_get_channel_videos_with_cache_fetches_when_cache_is_empty(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -710,7 +682,7 @@ def test_get_channel_videos_with_cache_fetches_when_cache_is_empty(tmp_path):
 def test_get_channel_videos_with_cache_adds_z_to_string_dates(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -734,7 +706,7 @@ def test_get_channel_videos_with_cache_adds_z_to_string_dates(tmp_path):
         "2026-01-02T00:00:00",
     )
 
-    api.call_api.assert_any_call(
+    api.client.call.assert_any_call(
         "search",
         "list",
         part="id,snippet",
@@ -762,7 +734,7 @@ def test_get_channel_videos_with_cache_returns_cached_videos(tmp_path):
         }
     )
 
-    api.call_api = MagicMock()
+    api.client.call = MagicMock()
 
     result = api.get_channel_videos_with_cache(
         "channel1",
@@ -772,7 +744,7 @@ def test_get_channel_videos_with_cache_returns_cached_videos(tmp_path):
 
     assert len(result) == 1
     assert result[0][0] == "video1"
-    api.call_api.assert_not_called()
+    api.client.call.assert_not_called()
 
 
 def test_get_channel_videos_with_cache_returns_empty_when_nothing_found(
@@ -780,7 +752,7 @@ def test_get_channel_videos_with_cache_returns_empty_when_nothing_found(
 ):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         side_effect=[
             {
                 "items": [
@@ -815,7 +787,7 @@ def test_get_channel_videos_with_cache_returns_empty_when_nothing_found(
 def test_search_videos_passes_all_parameters(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(return_value={"items": []})
+    api.client.call = MagicMock(return_value={"items": []})
 
     api.search_videos(
         query="test",
@@ -828,7 +800,7 @@ def test_search_videos_passes_all_parameters(tmp_path):
         page_token="next-token",
     )
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "search",
         "list",
         part="snippet",
@@ -847,11 +819,11 @@ def test_search_videos_passes_all_parameters(tmp_path):
 def test_search_videos_omits_optional_parameters(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(return_value={"items": []})
+    api.client.call = MagicMock(return_value={"items": []})
 
     api.search_videos()
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "search",
         "list",
         part="snippet",
@@ -876,7 +848,7 @@ def test_get_video_details_returns_first_item(tmp_path):
         },
     }
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [item],
         }
@@ -886,7 +858,7 @@ def test_get_video_details_returns_first_item(tmp_path):
 
     assert result == item
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "videos",
         "list",
         part="snippet,contentDetails",
@@ -897,7 +869,7 @@ def test_get_video_details_returns_first_item(tmp_path):
 def test_get_video_details_passes_custom_part(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [
                 {
@@ -914,7 +886,7 @@ def test_get_video_details_passes_custom_part(tmp_path):
 
     assert result == {"id": "video1"}
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "videos",
         "list",
         part="statistics",
@@ -925,7 +897,7 @@ def test_get_video_details_passes_custom_part(tmp_path):
 def test_get_video_details_returns_none_when_not_found(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(return_value={"items": []})
+    api.client.call = MagicMock(return_value={"items": []})
 
     result = api.get_video_details("video1")
 
@@ -948,7 +920,7 @@ def test_get_playlist_items(tmp_path):
         ]
     }
 
-    api.call_api = MagicMock(return_value=response)
+    api.client.call = MagicMock(return_value=response)
 
     result = api.get_playlist_items(
         "playlist1",
@@ -958,7 +930,7 @@ def test_get_playlist_items(tmp_path):
 
     assert result == response
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "playlistItems",
         "list",
         part="snippet",
@@ -975,13 +947,13 @@ def test_get_playlist_items_omits_page_token_when_none(tmp_path):
         "items": [],
     }
 
-    api.call_api = MagicMock(return_value=response)
+    api.client.call = MagicMock(return_value=response)
 
     result = api.get_playlist_items("playlist1")
 
     assert result == response
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "playlistItems",
         "list",
         part="snippet",
@@ -998,7 +970,7 @@ def test_get_playlist_items_omits_page_token_when_none(tmp_path):
 def test_get_live_streaming_video_ids_filters_live_videos(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [
                 {
@@ -1022,7 +994,7 @@ def test_get_live_streaming_video_ids_filters_live_videos(tmp_path):
 
     assert result == {"video1", "video3"}
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "videos",
         "list",
         part="liveStreamingDetails",
@@ -1035,7 +1007,7 @@ def test_get_live_streaming_video_ids_batches_50_ids(tmp_path):
 
     video_ids = [f"video{i}" for i in range(51)]
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [],
         }
@@ -1047,7 +1019,7 @@ def test_get_live_streaming_video_ids_batches_50_ids(tmp_path):
 
     calls = [
         call
-        for call in api.call_api.call_args_list
+        for call in api.client.call.call_args_list
         if call.args[:2] == ("videos", "list")
     ]
 
@@ -1059,12 +1031,12 @@ def test_get_live_streaming_video_ids_batches_50_ids(tmp_path):
 def test_get_live_streaming_video_ids_returns_empty_for_empty_ids(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock()
+    api.client.call = MagicMock()
 
     result = api.get_live_streaming_video_ids([])
 
     assert result == set()
-    api.call_api.assert_not_called()
+    api.client.call.assert_not_called()
 
 
 # ============================================================
@@ -1075,7 +1047,7 @@ def test_get_live_streaming_video_ids_returns_empty_for_empty_ids(tmp_path):
 def test_get_video_details_with_cache_saves_channel_and_video(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [
                 {
@@ -1123,7 +1095,7 @@ def test_get_video_details_with_cache_passes_custom_part(tmp_path):
         },
     }
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [item],
         }
@@ -1136,7 +1108,7 @@ def test_get_video_details_with_cache_passes_custom_part(tmp_path):
 
     assert result == item
 
-    api.call_api.assert_called_once_with(
+    api.client.call.assert_called_once_with(
         "videos",
         "list",
         part="snippet",
@@ -1147,7 +1119,7 @@ def test_get_video_details_with_cache_passes_custom_part(tmp_path):
 def test_get_video_details_with_cache_returns_none_when_not_found(tmp_path):
     api = create_api(tmp_path)
 
-    api.call_api = MagicMock(return_value={"items": []})
+    api.client.call = MagicMock(return_value={"items": []})
 
     result = api.get_video_details_with_cache("video1")
 
@@ -1169,7 +1141,7 @@ def test_get_video_details_with_cache_returns_item_when_channel_info_missing(
         },
     }
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [item],
         }
@@ -1199,7 +1171,7 @@ def test_get_video_details_with_cache_does_not_save_when_channel_title_missing(
         },
     }
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [item],
         }
@@ -1228,7 +1200,7 @@ def test_get_video_details_with_cache_preserves_existing_duration_when_missing(
         }
     )
 
-    api.call_api = MagicMock(
+    api.client.call = MagicMock(
         return_value={
             "items": [
                 {

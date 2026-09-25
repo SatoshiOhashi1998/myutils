@@ -16,6 +16,7 @@ from .converters import (
     video_from_api_item,
     video_from_search_item,
 )
+from .youtube_client import YouTubeClient
 
 
 load_dotenv()
@@ -68,22 +69,17 @@ def _video_data(
 # =============================================
 
 class YouTubeAPI:
-
-    # -----------------------------------------
-    # Initialization
-    # -----------------------------------------
-
-    def __init__(self, youtube=None, db=None):
-        self.youtube = (
-            youtube
-            if youtube is not None
-            else build("youtube", "v3", developerKey=API_KEY)
+    def __init__(self, client=None, db=None):
+        self.client = (
+            client
+            if client is not None
+            else YouTubeClient()
         )
-        self.db = db if db is not None else YouTubeDB()
-
-    def call_api(self, resource, method, **params):
-        func = getattr(getattr(self.youtube, resource)(), method)
-        return func(**params).execute()
+        self.db = (
+            db
+            if db is not None
+            else YouTubeDB()
+        )
 
     # -----------------------------------------
     # Cache
@@ -95,7 +91,7 @@ class YouTubeAPI:
         if result:
             return result
 
-        response = self.call_api(
+        response = self.client.call(
             "videos",
             "list",
             part="snippet,contentDetails",
@@ -120,7 +116,7 @@ class YouTubeAPI:
         if result:
             return result
 
-        response = self.call_api(
+        response = self.client.call(
             "channels",
             "list",
             part="snippet",
@@ -164,7 +160,7 @@ class YouTubeAPI:
         next_page_token = None
 
         while True:
-            response = self.call_api(
+            response = self.client.call(
                 "search",
                 "list",
                 part="id,snippet",
@@ -230,7 +226,7 @@ class YouTubeAPI:
     def fetch_and_update_video_details(self, video_ids):
         for batch_ids in _chunks(video_ids, 50):
 
-            response = self.call_api(
+            response = self.client.call(
                 "videos",
                 "list",
                 part="contentDetails",
@@ -287,7 +283,7 @@ class YouTubeAPI:
         if page_token is not None:
             params["pageToken"] = page_token
 
-        return self.call_api(
+        return self.client.call(
             "search",
             "list",
             **params,
@@ -302,7 +298,7 @@ class YouTubeAPI:
         video_id,
         part="snippet,contentDetails",
     ):
-        response = self.call_api(
+        response = self.client.call(
             "videos",
             "list",
             part=part,
@@ -365,7 +361,7 @@ class YouTubeAPI:
         if page_token is not None:
             params["pageToken"] = page_token
 
-        return self.call_api(
+        return self.client.call(
             "playlistItems",
             "list",
             **params,
@@ -383,7 +379,7 @@ class YouTubeAPI:
             if not batch_ids:
                 continue
 
-            response = self.call_api(
+            response = self.client.call(
                 "videos",
                 "list",
                 part="liveStreamingDetails",
