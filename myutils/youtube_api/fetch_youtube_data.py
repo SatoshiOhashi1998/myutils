@@ -10,6 +10,12 @@ from dotenv import load_dotenv
 from googleapiclient.discovery import build
 
 from .youtube_db import YouTubeDB
+from .converters import (
+    channel_from_api_item,
+    parse_duration,
+    video_from_api_item,
+    video_from_search_item,
+)
 
 
 load_dotenv()
@@ -28,13 +34,6 @@ def _to_utc_z(value):
         return value + "Z"
 
     return value
-
-
-def _parse_duration(value):
-    try:
-        return int(isodate.parse_duration(value).total_seconds())
-    except Exception:
-        return None
 
 def _chunks(values, size):
     for i in range(0, len(values), size):
@@ -61,43 +60,6 @@ def _video_data(
         "thumbnail_default": thumbnails.get("default", {}).get("url"),
         "thumbnail_medium": thumbnails.get("medium", {}).get("url"),
         "thumbnail_high": thumbnails.get("high", {}).get("url"),
-    }
-
-def _video_from_api_item(item):
-    snippet = item.get("snippet", {})
-    content_details = item.get("contentDetails", {})
-
-    duration = None
-    duration_iso = content_details.get("duration")
-
-    if duration_iso:
-        duration = _parse_duration(duration_iso)
-
-    return _video_data(
-        video_id=item.get("id"),
-        snippet=snippet,
-        channel_id=snippet.get("channelId"),
-        duration=duration,
-    )
-
-def _video_from_search_item(item, channel_id):
-    snippet = item.get("snippet", {})
-    video_id = item.get("id", {}).get("videoId")
-
-    return _video_data(
-        video_id=video_id,
-        snippet=snippet,
-        channel_id=channel_id,
-        duration=None,
-    )
-
-
-def _channel_from_api_item(item):
-    snippet = item.get("snippet", {})
-
-    return {
-        "channel_id": item.get("id"),
-        "channel_title": snippet.get("title", ""),
     }
 
 
@@ -145,7 +107,7 @@ class YouTubeAPI:
             return None
 
         item = items[0]
-        video = _video_from_api_item(item)
+        video = video_from_api_item(item)
 
         self.get_channel_with_cache(video["channel_id"])
         self.db.insert_video(video)
@@ -169,7 +131,7 @@ class YouTubeAPI:
         if not items:
             return None
 
-        channel = _channel_from_api_item(items[0])
+        channel = channel_from_api_item(items[0])
 
         self.db.insert_channel(
             channel["channel_id"],
@@ -218,7 +180,7 @@ class YouTubeAPI:
             video_ids = []
 
             for item in response.get("items", []):
-                video = _video_from_search_item(item, channel_id)
+                video = video_from_search_item(item, channel_id)
 
                 self.db.insert_video(video)
                 video_ids.append(video["video_id"])
@@ -278,7 +240,7 @@ class YouTubeAPI:
             for item in response.get("items", []):
                 vid = item["id"]
                 duration_iso = item["contentDetails"]["duration"]
-                duration_sec = _parse_duration(duration_iso)
+                duration_sec = parse_duration(duration_iso)
 
                 self.db.update_video_duration(
                     vid,
@@ -379,7 +341,7 @@ class YouTubeAPI:
             channel_title,
         )
 
-        video = _video_from_api_item(item)
+        video = video_from_api_item(item)
         self.db.upsert_video(video)
 
         return item

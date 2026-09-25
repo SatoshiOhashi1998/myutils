@@ -3,13 +3,17 @@ from unittest.mock import MagicMock
 
 from myutils.youtube_api.fetch_youtube_data import (
     YouTubeAPI,
-    _channel_from_api_item,
-    _parse_duration,
     _to_utc_z,
-    _video_from_api_item,
-    _video_from_search_item,
     _chunks,
 )
+
+from myutils.youtube_api.converters import (
+    channel_from_api_item,
+    parse_duration,
+    video_from_api_item,
+    video_from_search_item,
+)
+
 from myutils.youtube_api.youtube_db import YouTubeDB
 
 
@@ -1278,32 +1282,32 @@ def test_to_utc_z_returns_other_values_unchanged():
 
 
 # ============================================================
-# _parse_duration
+# parse_duration
 # ============================================================
 
 
-def test_parse_duration():
-    assert _parse_duration("PT1H2M3S") == 3723
+def testparse_duration():
+    assert parse_duration("PT1H2M3S") == 3723
 
 
-def test_parse_duration_returns_zero_for_zero_duration():
-    assert _parse_duration("PT0S") == 0
+def testparse_duration_returns_zero_for_zero_duration():
+    assert parse_duration("PT0S") == 0
 
 
-def test_parse_duration_returns_none_for_invalid_value():
-    assert _parse_duration("invalid") is None
+def testparse_duration_returns_none_for_invalid_value():
+    assert parse_duration("invalid") is None
 
 
-def test_parse_duration_returns_none_for_empty_value():
-    assert _parse_duration("") is None
+def testparse_duration_returns_none_for_empty_value():
+    assert parse_duration("") is None
 
 
 # ============================================================
-# _video_from_search_item
+# video_from_search_item
 # ============================================================
 
 
-def test_video_from_search_item():
+def testvideo_from_search_item():
     item = {
         "id": {
             "videoId": "video1",
@@ -1325,7 +1329,7 @@ def test_video_from_search_item():
         },
     }
 
-    result = _video_from_search_item(item, "channel1")
+    result = video_from_search_item(item, "channel1")
 
     assert result == {
         "video_id": "video1",
@@ -1339,8 +1343,8 @@ def test_video_from_search_item():
     }
 
 
-def test_video_from_search_item_handles_missing_fields():
-    result = _video_from_search_item({}, "channel1")
+def testvideo_from_search_item_handles_missing_fields():
+    result = video_from_search_item({}, "channel1")
 
     assert result == {
         "video_id": None,
@@ -1355,18 +1359,18 @@ def test_video_from_search_item_handles_missing_fields():
 
 
 # ============================================================
-# _video_from_api_item
+# video_from_api_item
 # ============================================================
 
 
-def test_video_from_api_item_handles_missing_fields():
+def testvideo_from_api_item_handles_missing_fields():
     item = {
         "id": "video1",
         "snippet": {},
         "contentDetails": {},
     }
 
-    result = _video_from_api_item(item)
+    result = video_from_api_item(item)
 
     assert result == {
         "video_id": "video1",
@@ -1380,7 +1384,7 @@ def test_video_from_api_item_handles_missing_fields():
     }
 
 
-def test_video_from_api_item():
+def testvideo_from_api_item():
     item = {
         "id": "video1",
         "snippet": {
@@ -1404,7 +1408,7 @@ def test_video_from_api_item():
         },
     }
 
-    result = _video_from_api_item(item)
+    result = video_from_api_item(item)
 
     assert result == {
         "video_id": "video1",
@@ -1418,7 +1422,7 @@ def test_video_from_api_item():
     }
 
 
-def test_video_from_api_item_without_duration():
+def testvideo_from_api_item_without_duration():
     item = {
         "id": "video1",
         "snippet": {
@@ -1430,17 +1434,17 @@ def test_video_from_api_item_without_duration():
         "contentDetails": {},
     }
 
-    result = _video_from_api_item(item)
+    result = video_from_api_item(item)
 
     assert result["duration"] is None
 
 
 # ============================================================
-# _channel_from_api_item
+# channel_from_api_item
 # ============================================================
 
 
-def test_channel_from_api_item():
+def testchannel_from_api_item():
     item = {
         "id": "channel1",
         "snippet": {
@@ -1448,7 +1452,7 @@ def test_channel_from_api_item():
         },
     }
 
-    result = _channel_from_api_item(item)
+    result = channel_from_api_item(item)
 
     assert result == {
         "channel_id": "channel1",
@@ -1456,8 +1460,8 @@ def test_channel_from_api_item():
     }
 
 
-def test_channel_from_api_item_handles_missing_fields():
-    result = _channel_from_api_item({})
+def testchannel_from_api_item_handles_missing_fields():
+    result = channel_from_api_item({})
 
     assert result == {
         "channel_id": None,
