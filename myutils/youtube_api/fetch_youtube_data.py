@@ -69,17 +69,9 @@ def _video_data(
 # =============================================
 
 class YouTubeAPI:
-    def __init__(self, client=None, db=None):
-        self.client = (
-            client
-            if client is not None
-            else YouTubeClient()
-        )
-        self.db = (
-            db
-            if db is not None
-            else YouTubeDB()
-        )
+    def __init__(self, client, db):
+        self.client = client
+        self.db = db
 
     # -----------------------------------------
     # Cache
