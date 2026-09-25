@@ -8,5 +8,9 @@ setup(
     packages=find_packages(),  # __init__.pyがあるディレクトリを探してくれる
     description='共通ユーティリティ関数',
     author='あなたの名前',
-    install_requires=['pygame']
+    install_requires=[
+    "pygame",
+    "google-api-python-client",
+    "isodate",
+]
 )
