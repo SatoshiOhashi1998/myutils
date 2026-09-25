@@ -2,27 +2,15 @@
 # ---------------------------------------------
 # YouTube Data API
 
-import os
 from datetime import datetime
 
-import isodate
-from dotenv import load_dotenv
-from googleapiclient.discovery import build
-
-from .youtube_db import YouTubeDB
 from .converters import (
     channel_from_api_item,
     parse_duration,
     video_from_api_item,
     video_from_search_item,
 )
-from .youtube_client import YouTubeClient
-
-
-load_dotenv()
-API_KEY = os.getenv("YOUTUBE_API_KEY")
-
-
+    
 # =============================================
 # Utility / Conversion
 # =============================================
