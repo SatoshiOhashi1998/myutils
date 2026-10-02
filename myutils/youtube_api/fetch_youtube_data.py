@@ -8,6 +8,7 @@ from .converters import (
     channel_from_api_item,
     parse_duration,
     video_from_api_item,
+    video_from_playlist_item,
     video_from_search_item,
 )
     
@@ -243,6 +244,37 @@ class YouTubeAPI:
             start,
             end,
         )
+
+    def fetch_and_save_videos_from_playlist(
+        self,
+        playlist_id,
+        channel_id,
+        max_results=50,
+    ):
+        next_page_token = None
+
+        while True:
+            response = self.get_playlist_videos(
+                playlist_id,
+                max_results=max_results,
+                page_token=next_page_token,
+            )
+
+            for item in response.get("items", []):
+                video = video_from_playlist_item(item)
+
+                if not video["video_id"]:
+                    continue
+
+                if not video["channel_id"]:
+                    video["channel_id"] = channel_id
+
+                self.db.insert_video(video)
+
+            next_page_token = response.get("nextPageToken")
+
+            if not next_page_token:
+                break
 
     # -----------------------------------------
     # Update Video Details

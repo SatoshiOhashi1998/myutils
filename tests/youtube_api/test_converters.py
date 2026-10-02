@@ -4,6 +4,7 @@ from myutils.youtube_api.converters import (
     video_data,
     video_from_api_item,
     video_from_search_item,
+    video_from_playlist_item,
 )
 
 
@@ -196,4 +197,40 @@ def test_channel_from_api_item_handles_missing_fields():
     assert result == {
         "channel_id": None,
         "channel_title": "",
+    }
+
+def test_video_from_playlist_item():
+    item = {
+        "snippet": {
+            "resourceId": {
+                "videoId": "video-1",
+            },
+            "title": "Test Video",
+            "channelId": "channel-1",
+            "publishedAt": "2026-10-01T00:00:00Z",
+            "thumbnails": {
+                "default": {
+                    "url": "default.jpg",
+                },
+                "medium": {
+                    "url": "medium.jpg",
+                },
+                "high": {
+                    "url": "high.jpg",
+                },
+            },
+        }
+    }
+
+    result = video_from_playlist_item(item)
+
+    assert result == {
+        "video_id": "video-1",
+        "title": "Test Video",
+        "channel_id": "channel-1",
+        "published_at": "2026-10-01T00:00:00Z",
+        "duration": None,
+        "thumbnail_default": "default.jpg",
+        "thumbnail_medium": "medium.jpg",
+        "thumbnail_high": "high.jpg",
     }

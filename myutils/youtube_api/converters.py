@@ -60,3 +60,14 @@ def channel_from_api_item(item):
         "channel_id": item.get("id"),
         "channel_title": snippet.get("title", ""),
     }
+
+def video_from_playlist_item(item):
+    snippet = item.get("snippet", {})
+    resource = snippet.get("resourceId", {})
+
+    return video_data(
+        video_id=resource.get("videoId"),
+        snippet=snippet,
+        channel_id=snippet.get("channelId"),
+        duration=None,
+    )

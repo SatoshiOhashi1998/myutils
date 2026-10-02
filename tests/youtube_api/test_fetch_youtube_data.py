@@ -1080,3 +1080,82 @@ def test_get_playlist_videos(tmp_path):
         playlistId="playlist-1",
         maxResults=50,
     )
+
+def test_fetch_and_save_videos_from_playlist(tmp_path):
+    client = MagicMock()
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    db.insert_channel(
+        "channel-1",
+        "Test Channel",
+    )
+
+    api = YouTubeAPI(
+        client=client,
+        db=db,
+    )
+
+    client.call.side_effect = [
+        {
+            "items": [
+                {
+                    "snippet": {
+                        "resourceId": {
+                            "videoId": "video-1",
+                        },
+                        "title": "Video 1",
+                        "channelId": "channel-1",
+                        "publishedAt": "2026-10-01T00:00:00Z",
+                    }
+                }
+            ],
+            "nextPageToken": "next-token",
+        },
+        {
+            "items": [
+                {
+                    "snippet": {
+                        "resourceId": {
+                            "videoId": "video-2",
+                        },
+                        "title": "Video 2",
+                        "channelId": "channel-1",
+                        "publishedAt": "2026-09-01T00:00:00Z",
+                    }
+                }
+            ]
+        },
+    ]
+
+    api.fetch_and_save_videos_from_playlist(
+        playlist_id="playlist-1",
+        channel_id="channel-1",
+    )
+
+    video_1 = db.get_video_by_id("video-1")
+    video_2 = db.get_video_by_id("video-2")
+
+    assert video_1[0] == "video-1"
+    assert video_1[1] == "Video 1"
+
+    assert video_2[0] == "video-2"
+    assert video_2[1] == "Video 2"
+
+    assert client.call.call_count == 2
+
+    client.call.assert_any_call(
+        "playlistItems",
+        "list",
+        part="snippet",
+        playlistId="playlist-1",
+        maxResults=50,
+    )
+
+    client.call.assert_any_call(
+        "playlistItems",
+        "list",
+        part="snippet",
+        playlistId="playlist-1",
+        maxResults=50,
+        pageToken="next-token",
+    )
