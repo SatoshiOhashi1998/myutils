@@ -29,6 +29,18 @@ class YouTubeDB:
         """)
 
         cursor.execute("""
+        CREATE TABLE IF NOT EXISTS channel_sync_state (
+            channel_id TEXT PRIMARY KEY,
+            uploads_playlist_id TEXT,
+            oldest_synced_at TEXT,
+            newest_synced_at TEXT,
+            FOREIGN KEY (channel_id)
+                REFERENCES channels(channel_id)
+                ON DELETE CASCADE
+        );
+        """)
+
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS videos (
             video_id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -225,3 +237,61 @@ class YouTubeDB:
             return []
 
         return json.loads(row[0])
+
+    def get_channel_sync_state(self, channel_id):
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT
+                    channel_id,
+                    uploads_playlist_id,
+                    oldest_synced_at,
+                    newest_synced_at
+                FROM channel_sync_state
+                WHERE channel_id = ?
+                """,
+                (channel_id,),
+            ).fetchone()
+
+    def set_channel_sync_state(
+        self,
+        channel_id,
+        uploads_playlist_id=None,
+        oldest_synced_at=None,
+        newest_synced_at=None,
+    ):
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO channel_sync_state (
+                    channel_id,
+                    uploads_playlist_id,
+                    oldest_synced_at,
+                    newest_synced_at
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(channel_id)
+                DO UPDATE SET
+                    uploads_playlist_id =
+                        COALESCE(
+                            excluded.uploads_playlist_id,
+                            channel_sync_state.uploads_playlist_id
+                        ),
+                    oldest_synced_at =
+                        COALESCE(
+                            excluded.oldest_synced_at,
+                            channel_sync_state.oldest_synced_at
+                        ),
+                    newest_synced_at =
+                        COALESCE(
+                            excluded.newest_synced_at,
+                            channel_sync_state.newest_synced_at
+                        )
+                """,
+                (
+                    channel_id,
+                    uploads_playlist_id,
+                    oldest_synced_at,
+                    newest_synced_at,
+                ),
+            )

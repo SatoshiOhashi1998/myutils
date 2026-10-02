@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from tempfile import tempdir
 
 import pytest
 
@@ -66,6 +67,7 @@ def test_db_initialization_creates_tables(tmp_path):
 
     assert "channels" in tables
     assert "videos" in tables
+    assert "channel_sync_state" in tables
 
 
 def test_db_initialization_creates_tags_column(tmp_path):
@@ -610,3 +612,57 @@ def test_update_channel_tags_stores_json(tmp_path):
         ).fetchone()
 
     assert json.loads(row[0]) == tags
+
+def test_channel_sync_state(tmp_path):
+    db = create_db(tmp_path)
+    db.insert_channel(
+        "channel-1",
+        "Test Channel",
+    )
+
+    assert db.get_channel_sync_state("channel-1") is None
+
+    db.set_channel_sync_state(
+        "channel-1",
+        uploads_playlist_id="playlist-1",
+        oldest_synced_at="2026-01-01T00:00:00Z",
+        newest_synced_at="2026-10-01T00:00:00Z",
+    )
+
+    state = db.get_channel_sync_state("channel-1")
+
+    assert state == (
+        "channel-1",
+        "playlist-1",
+        "2026-01-01T00:00:00Z",
+        "2026-10-01T00:00:00Z",
+    )
+
+def test_channel_sync_state_preserves_existing_values(tmp_path):
+    db = create_db(tmp_path)
+
+    db.insert_channel(
+        "channel-1",
+        "Test Channel",
+    )
+
+    db.set_channel_sync_state(
+        "channel-1",
+        uploads_playlist_id="playlist-1",
+        oldest_synced_at="2026-01-01T00:00:00Z",
+        newest_synced_at="2026-10-01T00:00:00Z",
+    )
+
+    db.set_channel_sync_state(
+        "channel-1",
+        newest_synced_at="2026-10-02T00:00:00Z",
+    )
+
+    state = db.get_channel_sync_state("channel-1")
+
+    assert state == (
+        "channel-1",
+        "playlist-1",
+        "2026-01-01T00:00:00Z",
+        "2026-10-02T00:00:00Z",
+    )
