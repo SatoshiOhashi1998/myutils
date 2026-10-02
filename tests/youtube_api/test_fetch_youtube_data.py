@@ -1146,7 +1146,7 @@ def test_fetch_and_save_videos_from_playlist(tmp_path):
     client.call.assert_any_call(
         "playlistItems",
         "list",
-        part="snippet",
+        part="snippet,contentDetails",
         playlistId="playlist-1",
         maxResults=50,
     )
@@ -1154,7 +1154,7 @@ def test_fetch_and_save_videos_from_playlist(tmp_path):
     client.call.assert_any_call(
         "playlistItems",
         "list",
-        part="snippet",
+        part="snippet,contentDetails",
         playlistId="playlist-1",
         maxResults=50,
         pageToken="next-token",
