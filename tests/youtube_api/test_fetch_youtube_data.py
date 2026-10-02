@@ -1159,3 +1159,182 @@ def test_fetch_and_save_videos_from_playlist(tmp_path):
         maxResults=50,
         pageToken="next-token",
     )
+
+def test_is_channel_sync_complete(tmp_path):
+    client = MagicMock()
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    db.insert_channel(
+        "channel-1",
+        "Test Channel",
+    )
+
+    db.set_channel_sync_state(
+        "channel-1",
+        uploads_playlist_id="playlist-1",
+        oldest_synced_at="2026-01-01T00:00:00Z",
+        newest_synced_at="2026-10-01T00:00:00Z",
+    )
+
+    api = YouTubeAPI(
+        client=client,
+        db=db,
+    )
+
+    assert api.is_channel_sync_complete(
+        "channel-1",
+        "2026-03-01",
+        "2026-09-01",
+    ) is True
+
+    assert api.is_channel_sync_complete(
+        "channel-1",
+        "2025-12-01",
+        "2026-09-01",
+    ) is False
+
+    assert api.is_channel_sync_complete(
+        "channel-1",
+        "2026-03-01",
+        "2026-11-01",
+    ) is False
+
+def test_is_channel_sync_complete_returns_false_without_state(tmp_path):
+    client = MagicMock()
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    db.insert_channel(
+        "channel-1",
+        "Test Channel",
+    )
+
+    api = YouTubeAPI(
+        client=client,
+        db=db,
+    )
+
+    assert api.is_channel_sync_complete(
+        "channel-1",
+        "2026-03-01",
+        "2026-09-01",
+    ) is False
+
+def test_sync_channel_videos(tmp_path):
+    client = MagicMock()
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    db.insert_channel(
+        "channel-1",
+        "Test Channel",
+    )
+
+    api = YouTubeAPI(
+        client=client,
+        db=db,
+    )
+
+    client.call.side_effect = [
+        # channels.list
+        {
+            "items": [
+                {
+                    "id": "channel-1",
+                    "snippet": {
+                        "title": "Test Channel",
+                    },
+                    "contentDetails": {
+                        "relatedPlaylists": {
+                            "uploads": "playlist-1",
+                        },
+                    },
+                }
+            ]
+        },
+        # playlistItems.list
+        {
+            "items": [
+                {
+                    "snippet": {
+                        "resourceId": {
+                            "videoId": "video-2",
+                        },
+                        "title": "Video 2",
+                        "channelId": "channel-1",
+                        "videoOwnerChannelId": "channel-1",
+                    },
+                    "contentDetails": {
+                        "videoPublishedAt": "2026-09-01T00:00:00Z",
+                    },
+                },
+                {
+                    "snippet": {
+                        "resourceId": {
+                            "videoId": "video-1",
+                        },
+                        "title": "Video 1",
+                        "channelId": "channel-1",
+                        "videoOwnerChannelId": "channel-1",
+                    },
+                    "contentDetails": {
+                        "videoPublishedAt": "2026-08-01T00:00:00Z",
+                    },
+                },
+            ]
+        },
+    ]
+
+    result = api.sync_channel_videos(
+        channel_id="channel-1",
+        start_date="2026-08-01",
+        end_date="2026-10-01",
+    )
+
+    assert result is True
+
+    video_1 = db.get_video_by_id("video-1")
+    video_2 = db.get_video_by_id("video-2")
+
+    assert video_1[0] == "video-1"
+    assert video_1[1] == "Video 1"
+
+    assert video_2[0] == "video-2"
+    assert video_2[1] == "Video 2"
+
+    state = db.get_channel_sync_state("channel-1")
+
+    assert state == (
+        "channel-1",
+        "playlist-1",
+        "2026-08-01T00:00:00Z",
+        "2026-10-01T00:00:00Z",
+    )
+
+def test_sync_channel_videos_skips_api_when_already_synced(tmp_path):
+    client = MagicMock()
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    db.insert_channel(
+        "channel-1",
+        "Test Channel",
+    )
+
+    db.set_channel_sync_state(
+        "channel-1",
+        uploads_playlist_id="playlist-1",
+        oldest_synced_at="2026-08-01T00:00:00Z",
+        newest_synced_at="2026-10-01T00:00:00Z",
+    )
+
+    api = YouTubeAPI(
+        client=client,
+        db=db,
+    )
+
+    result = api.sync_channel_videos(
+        channel_id="channel-1",
+        start_date="2026-08-01",
+        end_date="2026-10-01",
+    )
+
+    assert result is True
+    client.call.assert_not_called()

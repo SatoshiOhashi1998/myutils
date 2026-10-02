@@ -20,7 +20,13 @@ def _to_utc_z(value):
     if isinstance(value, datetime):
         return value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    if isinstance(value, str) and not value.endswith("Z"):
+    if isinstance(value, str):
+        if value.endswith("Z"):
+            return value
+
+        if len(value) == 10:
+            return value + "T00:00:00Z"
+
         return value + "Z"
 
     return value
@@ -165,6 +171,31 @@ class YouTubeAPI:
             channel["channel_title"],
         )
 
+    def is_channel_sync_complete(
+        self,
+        channel_id,
+        start_date,
+        end_date,
+    ):
+        state = self.db.get_channel_sync_state(channel_id)
+
+        if not state:
+            return False
+
+        oldest_synced_at = state[2]
+        newest_synced_at = state[3]
+
+        if not oldest_synced_at or not newest_synced_at:
+            return False
+
+        start = _to_utc_z(start_date)
+        end = _to_utc_z(end_date)
+
+        return (
+            oldest_synced_at <= start
+            and newest_synced_at >= end
+        )
+
     # -----------------------------------------
     # Fetch / Save Videos
     # -----------------------------------------
@@ -275,6 +306,80 @@ class YouTubeAPI:
 
             if not next_page_token:
                 break
+
+    def sync_channel_videos(
+        self,
+        channel_id,
+        start_date,
+        end_date,
+        max_results=50,
+    ):
+        start = _to_utc_z(start_date)
+        end = _to_utc_z(end_date)
+
+        if self.is_channel_sync_complete(
+            channel_id,
+            start,
+            end,
+        ):
+            return True
+
+        playlist_id = self.get_channel_uploads_playlist_id(
+            channel_id
+        )
+
+        if not playlist_id:
+            return False
+
+        next_page_token = None
+        oldest_published_at = None
+
+        while True:
+            response = self.get_playlist_videos(
+                playlist_id,
+                max_results=max_results,
+                page_token=next_page_token,
+            )
+
+            items = response.get("items", [])
+
+            for item in items:
+                video = video_from_playlist_item(item)
+
+                video_id = video["video_id"]
+                published_at = video["published_at"]
+
+                if not video_id or not published_at:
+                    continue
+
+                if video["channel_id"] is None:
+                    video["channel_id"] = channel_id
+
+                if published_at >= start:
+                    if published_at < end:
+                        self.db.insert_video(video)
+
+                oldest_published_at = published_at
+
+            if not items:
+                break
+
+            if oldest_published_at and oldest_published_at < start:
+                break
+
+            next_page_token = response.get("nextPageToken")
+
+            if not next_page_token:
+                break
+
+        self.db.set_channel_sync_state(
+            channel_id,
+            uploads_playlist_id=playlist_id,
+            oldest_synced_at=start,
+            newest_synced_at=end,
+        )
+
+        return True
 
     # -----------------------------------------
     # Update Video Details
