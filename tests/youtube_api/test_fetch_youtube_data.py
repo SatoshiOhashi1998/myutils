@@ -1038,3 +1038,45 @@ def test_get_channel_uploads_playlist_id_uses_cache(tmp_path):
     assert playlist_id == "playlist-1"
 
     client.call.assert_not_called()
+
+def test_get_playlist_videos(tmp_path):
+    client = MagicMock()
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    api = YouTubeAPI(
+        client=client,
+        db=db,
+    )
+
+    client.call.return_value = {
+        "items": [
+            {
+                "id": "playlist-item-1",
+                "snippet": {
+                    "resourceId": {
+                        "videoId": "video-1",
+                    },
+                    "title": "Test Video",
+                    "channelId": "channel-1",
+                    "publishedAt": "2026-10-01T00:00:00Z",
+                },
+            }
+        ],
+        "nextPageToken": "next-token",
+    }
+
+    response = api.get_playlist_videos(
+        "playlist-1",
+        max_results=50,
+    )
+
+    assert response["items"][0]["snippet"]["resourceId"]["videoId"] == "video-1"
+    assert response["nextPageToken"] == "next-token"
+
+    client.call.assert_called_once_with(
+        "playlistItems",
+        "list",
+        part="snippet",
+        playlistId="playlist-1",
+        maxResults=50,
+    )

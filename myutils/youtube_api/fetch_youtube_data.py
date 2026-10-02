@@ -114,6 +114,27 @@ class YouTubeAPI:
 
         return uploads_playlist_id
 
+    def get_playlist_videos(
+        self,
+        playlist_id,
+        max_results=50,
+        page_token=None,
+    ):
+        params = {
+            "part": "snippet",
+            "playlistId": playlist_id,
+            "maxResults": max_results,
+        }
+
+        if page_token is not None:
+            params["pageToken"] = page_token
+
+        return self.client.call(
+            "playlistItems",
+            "list",
+            **params,
+        )
+
     def get_channel_with_cache(self, channel_id):
         result = self.db.get_channel_by_id(channel_id)
 
