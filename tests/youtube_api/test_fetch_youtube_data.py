@@ -964,3 +964,77 @@ def test_chunks_keeps_exact_50_items_in_one_chunk():
     result = list(_chunks(values, 50))
 
     assert result == [values]
+
+def test_get_channel_uploads_playlist_id_fetches_and_caches(tmp_path):
+    client = MagicMock()
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    api = YouTubeAPI(
+        client=client,
+        db=db,
+    )
+
+    client.call.return_value = {
+        "items": [
+            {
+                "id": "channel-1",
+                "snippet": {
+                    "title": "Test Channel",
+                },
+                "contentDetails": {
+                    "relatedPlaylists": {
+                        "uploads": "playlist-1",
+                    },
+                },
+            }
+        ]
+    }
+
+    playlist_id = api.get_channel_uploads_playlist_id(
+        "channel-1"
+    )
+
+    assert playlist_id == "playlist-1"
+
+    state = db.get_channel_sync_state("channel-1")
+
+    assert state == (
+        "channel-1",
+        "playlist-1",
+        None,
+        None,
+    )
+
+    client.call.assert_called_once_with(
+        "channels",
+        "list",
+        part="contentDetails,snippet",
+        id="channel-1",
+    )
+
+def test_get_channel_uploads_playlist_id_uses_cache(tmp_path):
+    client = MagicMock()
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    api = YouTubeAPI(
+        client=client,
+        db=db,
+    )
+
+    db.insert_channel(
+        "channel-1",
+        "Test Channel",
+    )
+
+    db.set_channel_sync_state(
+        "channel-1",
+        uploads_playlist_id="playlist-1",
+    )
+
+    playlist_id = api.get_channel_uploads_playlist_id(
+        "channel-1"
+    )
+
+    assert playlist_id == "playlist-1"
+
+    client.call.assert_not_called()

@@ -67,6 +67,53 @@ class YouTubeAPI:
 
         return video
 
+    def get_channel_uploads_playlist_id(self, channel_id):
+        state = self.db.get_channel_sync_state(channel_id)
+
+        if state and state[1]:
+            return state[1]
+
+        response = self.client.call(
+            "channels",
+            "list",
+            part="contentDetails,snippet",
+            id=channel_id,
+        )
+
+        items = response.get("items", [])
+
+        if not items:
+            return None
+
+        item = items[0]
+
+        content_details = item.get("contentDetails", {})
+        related_playlists = content_details.get(
+            "relatedPlaylists",
+            {},
+        )
+
+        uploads_playlist_id = related_playlists.get("uploads")
+
+        if not uploads_playlist_id:
+            return None
+
+        snippet = item.get("snippet", {})
+        channel_title = snippet.get("title")
+
+        if channel_title:
+            self.db.insert_channel(
+                channel_id,
+                channel_title,
+            )
+
+        self.db.set_channel_sync_state(
+            channel_id,
+            uploads_playlist_id=uploads_playlist_id,
+        )
+
+        return uploads_playlist_id
+
     def get_channel_with_cache(self, channel_id):
         result = self.db.get_channel_by_id(channel_id)
 
