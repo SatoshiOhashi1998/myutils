@@ -207,6 +207,7 @@ def test_video_from_playlist_item():
             },
             "title": "Test Video",
             "channelId": "channel-1",
+            "videoOwnerChannelId": "channel-1",
             "publishedAt": "2026-10-01T00:00:00Z",
             "thumbnails": {
                 "default": {
@@ -219,7 +220,10 @@ def test_video_from_playlist_item():
                     "url": "high.jpg",
                 },
             },
-        }
+        },
+        "contentDetails": {
+            "videoPublishedAt": "2026-09-30T12:00:00Z",
+        },
     }
 
     result = video_from_playlist_item(item)
@@ -228,7 +232,7 @@ def test_video_from_playlist_item():
         "video_id": "video-1",
         "title": "Test Video",
         "channel_id": "channel-1",
-        "published_at": "2026-10-01T00:00:00Z",
+        "published_at": "2026-09-30T12:00:00Z",
         "duration": None,
         "thumbnail_default": "default.jpg",
         "thumbnail_medium": "medium.jpg",

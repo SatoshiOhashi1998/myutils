@@ -1076,7 +1076,7 @@ def test_get_playlist_videos(tmp_path):
     client.call.assert_called_once_with(
         "playlistItems",
         "list",
-        part="snippet",
+        part="snippet,contentDetails",
         playlistId="playlist-1",
         maxResults=50,
     )

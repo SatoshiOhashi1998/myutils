@@ -8,14 +8,24 @@ def parse_duration(value):
         return None
 
 
-def video_data(video_id, snippet, channel_id=None, duration=None):
+def video_data(
+    video_id,
+    snippet,
+    channel_id=None,
+    duration=None,
+    published_at=None,
+):
     thumbnails = snippet.get("thumbnails", {})
 
     return {
         "video_id": video_id,
         "title": snippet.get("title", ""),
         "channel_id": channel_id,
-        "published_at": snippet.get("publishedAt"),
+        "published_at": (
+            published_at
+            if published_at is not None
+            else snippet.get("publishedAt")
+        ),
         "duration": duration,
         "thumbnail_default": thumbnails.get("default", {}).get("url"),
         "thumbnail_medium": thumbnails.get("medium", {}).get("url"),
@@ -71,7 +81,6 @@ def video_from_playlist_item(item):
         snippet=snippet,
         channel_id=snippet.get("videoOwnerChannelId")
         or snippet.get("channelId"),
+        published_at=content_details.get("videoPublishedAt"),
         duration=None,
-    ) | {
-        "published_at": content_details.get("videoPublishedAt"),
-    }
+    )
