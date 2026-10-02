@@ -122,7 +122,7 @@ class YouTubeAPI:
         page_token=None,
     ):
         params = {
-            "part": "snippet",
+            "part": "snippet,contentDetails",
             "playlistId": playlist_id,
             "maxResults": max_results,
         }

@@ -63,11 +63,15 @@ def channel_from_api_item(item):
 
 def video_from_playlist_item(item):
     snippet = item.get("snippet", {})
+    content_details = item.get("contentDetails", {})
     resource = snippet.get("resourceId", {})
 
     return video_data(
         video_id=resource.get("videoId"),
         snippet=snippet,
-        channel_id=snippet.get("channelId"),
+        channel_id=snippet.get("videoOwnerChannelId")
+        or snippet.get("channelId"),
         duration=None,
-    )
+    ) | {
+        "published_at": content_details.get("videoPublishedAt"),
+    }
