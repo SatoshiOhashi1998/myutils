@@ -323,27 +323,23 @@ class YouTubeAPI:
         start = to_utc_z(start_date)
         end = to_utc_z(end_date)
 
-        results = self.db.get_videos_by_channel_and_date(
+        if not self.is_channel_sync_complete(
             channel_id,
             start,
             end,
-        )
-
-        if results:
-            return results
-
-        self.fetch_and_save_videos_from_channel(
-            channel_id,
-            published_after=start,
-            published_before=end,
-        )
+        ):
+            self.sync_channel_videos(
+                channel_id,
+                start,
+                end,
+            )
 
         return self.db.get_videos_by_channel_and_date(
             channel_id,
             start,
             end,
         )
-
+    
     def fetch_and_save_videos_from_playlist(
         self,
         playlist_id,

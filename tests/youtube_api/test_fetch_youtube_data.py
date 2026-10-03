@@ -527,13 +527,21 @@ def test_fetch_and_update_video_details_does_nothing_for_empty_ids(tmp_path):
 def test_get_channel_videos_with_cache_returns_cached_videos(tmp_path):
     api = create_api(tmp_path)
     insert_channel(api.db)
+
     insert_video(
         api.db,
         published_at="2025-07-01T12:00:00Z",
         duration=300,
     )
 
-    api.fetch_and_save_videos_from_channel = MagicMock()
+    api.db.set_channel_sync_state(
+        "channel1",
+        uploads_playlist_id="playlist1",
+        oldest_synced_at="2025-07-01T00:00:00Z",
+        newest_synced_at="2025-07-02T00:00:00Z",
+    )
+
+    api.sync_channel_videos = MagicMock()
 
     result = api.get_channel_videos_with_cache(
         "channel1",
@@ -543,23 +551,30 @@ def test_get_channel_videos_with_cache_returns_cached_videos(tmp_path):
 
     assert len(result) == 1
     assert result[0][0] == "video1"
-    api.fetch_and_save_videos_from_channel.assert_not_called()
+
+    api.sync_channel_videos.assert_not_called()
 
 
-def test_get_channel_videos_with_cache_fetches_when_cache_is_empty(tmp_path):
+def test_get_channel_videos_with_cache_syncs_when_cache_is_not_complete(
+    tmp_path,
+):
     api = create_api(tmp_path)
     insert_channel(api.db)
 
-    def save_video(*args, **kwargs):
-        insert_video(
-            api.db,
-            title="API動画",
-            published_at="2025-07-01T12:00:00Z",
-        )
-
-    api.fetch_and_save_videos_from_channel = MagicMock(
-        side_effect=save_video
+    # DBには動画が存在するが、同期済み範囲は7月1日だけ
+    insert_video(
+        api.db,
+        published_at="2025-07-01T12:00:00Z",
     )
+
+    api.db.set_channel_sync_state(
+        "channel1",
+        uploads_playlist_id="playlist1",
+        oldest_synced_at="2025-07-01T00:00:00Z",
+        newest_synced_at="2025-07-01T23:59:59Z",
+    )
+
+    api.sync_channel_videos = MagicMock()
 
     result = api.get_channel_videos_with_cache(
         "channel1",
@@ -567,32 +582,61 @@ def test_get_channel_videos_with_cache_fetches_when_cache_is_empty(tmp_path):
         "2025-07-02T00:00:00Z",
     )
 
+    api.sync_channel_videos.assert_called_once_with(
+        "channel1",
+        "2025-07-01T00:00:00Z",
+        "2025-07-02T00:00:00Z",
+    )
+
     assert len(result) == 1
     assert result[0][0] == "video1"
-    api.fetch_and_save_videos_from_channel.assert_called_once_with(
-        "channel1",
-        published_after="2025-07-01T00:00:00Z",
-        published_before="2025-07-02T00:00:00Z",
-    )
 
 
-def test_get_channel_videos_with_cache_adds_z_to_datetime_strings(tmp_path):
+def test_get_channel_videos_with_cache_syncs_when_cache_is_empty(
+    tmp_path,
+):
     api = create_api(tmp_path)
     insert_channel(api.db)
-    api.fetch_and_save_videos_from_channel = MagicMock()
 
-    api.get_channel_videos_with_cache(
+    api.sync_channel_videos = MagicMock()
+
+    result = api.get_channel_videos_with_cache(
         "channel1",
-        "2025-07-01T00:00:00",
-        "2025-07-02T00:00:00",
+        "2025-07-01T00:00:00Z",
+        "2025-07-02T00:00:00Z",
     )
 
-    api.fetch_and_save_videos_from_channel.assert_called_once_with(
+    api.sync_channel_videos.assert_called_once_with(
         "channel1",
-        published_after="2025-07-01T00:00:00Z",
-        published_before="2025-07-02T00:00:00Z",
+        "2025-07-01T00:00:00Z",
+        "2025-07-02T00:00:00Z",
     )
 
+    assert result == []
+
+def test_get_channel_videos_with_cache_does_not_sync_when_cached_range_has_no_videos(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+    insert_channel(api.db)
+
+    api.db.set_channel_sync_state(
+        "channel1",
+        uploads_playlist_id="playlist1",
+        oldest_synced_at="2025-07-01T00:00:00Z",
+        newest_synced_at="2025-07-02T00:00:00Z",
+    )
+
+    api.sync_channel_videos = MagicMock()
+
+    result = api.get_channel_videos_with_cache(
+        "channel1",
+        "2025-07-01T00:00:00Z",
+        "2025-07-02T00:00:00Z",
+    )
+
+    assert result == []
+    api.sync_channel_videos.assert_not_called()
 
 # ----------------------------------------------------------------------
 # Search / details / playlist
