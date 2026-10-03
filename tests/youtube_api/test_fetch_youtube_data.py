@@ -922,25 +922,25 @@ def test_get_video_details_with_cache_preserves_existing_duration(tmp_path):
 # ----------------------------------------------------------------------
 
 
-def testto_utc_z_converts_datetime():
+def test_to_utc_z_converts_datetime():
     value = datetime(2025, 7, 1, 12, 30, 45)
 
     assert to_utc_z(value) == "2025-07-01T12:30:45Z"
 
 
-def testto_utc_z_adds_z_to_string_without_z():
+def test_to_utc_z_adds_z_to_string_without_z():
     value = "2025-07-01T12:30:45"
 
     assert to_utc_z(value) == "2025-07-01T12:30:45Z"
 
 
-def testto_utc_z_keeps_string_with_z():
+def test_to_utc_z_keeps_string_with_z():
     value = "2025-07-01T12:30:45Z"
 
     assert to_utc_z(value) == value
 
 
-def testto_utc_z_keeps_none():
+def test_to_utc_z_keeps_none():
     assert to_utc_z(None) is None
 
 
