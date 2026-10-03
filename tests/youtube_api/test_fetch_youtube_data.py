@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from myutils.youtube_api.fetch_youtube_data import (
     YouTubeAPI,
     _chunks,
-    _to_utc_z,
+    to_utc_z,
 )
 from myutils.youtube_api.youtube_db import YouTubeDB
 
@@ -299,7 +299,7 @@ def test_fetch_and_save_videos_from_channel_does_nothing_when_channel_missing(
     api.client.call.assert_not_called()
 
 
-def test_fetch_and_save_videos_from_channel_converts_datetime_to_utc_z(tmp_path):
+def test_fetch_and_save_videos_from_channel_converts_datetimeto_utc_z(tmp_path):
     api = create_api(tmp_path)
     insert_channel(api.db)
     api.get_channel_with_cache = MagicMock(
@@ -922,26 +922,26 @@ def test_get_video_details_with_cache_preserves_existing_duration(tmp_path):
 # ----------------------------------------------------------------------
 
 
-def test_to_utc_z_converts_datetime():
+def testto_utc_z_converts_datetime():
     value = datetime(2025, 7, 1, 12, 30, 45)
 
-    assert _to_utc_z(value) == "2025-07-01T12:30:45Z"
+    assert to_utc_z(value) == "2025-07-01T12:30:45Z"
 
 
-def test_to_utc_z_adds_z_to_string_without_z():
+def testto_utc_z_adds_z_to_string_without_z():
     value = "2025-07-01T12:30:45"
 
-    assert _to_utc_z(value) == "2025-07-01T12:30:45Z"
+    assert to_utc_z(value) == "2025-07-01T12:30:45Z"
 
 
-def test_to_utc_z_keeps_string_with_z():
+def testto_utc_z_keeps_string_with_z():
     value = "2025-07-01T12:30:45Z"
 
-    assert _to_utc_z(value) == value
+    assert to_utc_z(value) == value
 
 
-def test_to_utc_z_keeps_none():
-    assert _to_utc_z(None) is None
+def testto_utc_z_keeps_none():
+    assert to_utc_z(None) is None
 
 
 def test_chunks_splits_sequence():

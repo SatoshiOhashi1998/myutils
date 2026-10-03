@@ -20,7 +20,7 @@ from .converters import (
 LIVE_STATE_TTL = timedelta(hours=3)
 UTC = timezone.utc
 
-def _to_utc_z(value: str | date | datetime | None, *, end_date: bool = False) -> str | None:
+def to_utc_z(value: str | date | datetime | None, *, end_date: bool = False) -> str | None:
     """日付/日時をYouTube API・youtube.db用のUTC ISO文字列へ変換する。"""
     if value is None:
         return None
@@ -67,7 +67,7 @@ def _to_utc_z(value: str | date | datetime | None, *, end_date: bool = False) ->
             day,
         )
 
-        return _to_utc_z(
+        return to_utc_z(
             parsed_date,
             end_date=end_date,
         )
@@ -241,8 +241,8 @@ class YouTubeAPI:
         if not oldest_synced_at or not newest_synced_at:
             return False
 
-        start = _to_utc_z(start_date)
-        end = _to_utc_z(end_date)
+        start = to_utc_z(start_date)
+        end = to_utc_z(end_date)
 
         return (
             oldest_synced_at <= start
@@ -277,8 +277,8 @@ class YouTubeAPI:
                 channelId=channel_id,
                 maxResults=max_results,
                 order="date",
-                publishedAfter=_to_utc_z(published_after),
-                publishedBefore=_to_utc_z(published_before),
+                publishedAfter=to_utc_z(published_after),
+                publishedBefore=to_utc_z(published_before),
                 pageToken=next_page_token,
                 type="video",
             )
@@ -305,8 +305,8 @@ class YouTubeAPI:
         start_date,
         end_date,
     ):
-        start = _to_utc_z(start_date)
-        end = _to_utc_z(end_date)
+        start = to_utc_z(start_date)
+        end = to_utc_z(end_date)
 
         results = self.db.get_videos_by_channel_and_date(
             channel_id,
@@ -367,8 +367,8 @@ class YouTubeAPI:
         end_date,
         max_results=50,
     ):
-        start = _to_utc_z(start_date)
-        end = _to_utc_z(end_date)
+        start = to_utc_z(start_date)
+        end = to_utc_z(end_date)
 
         if self.is_channel_sync_complete(
             channel_id,
@@ -487,10 +487,10 @@ class YouTubeAPI:
             params["channelId"] = channel_id
 
         if published_after is not None:
-            params["publishedAfter"] = _to_utc_z(published_after)
+            params["publishedAfter"] = to_utc_z(published_after)
 
         if published_before is not None:
-            params["publishedBefore"] = _to_utc_z(published_before)
+            params["publishedBefore"] = to_utc_z(published_before)
 
         if event_type is not None:
             params["eventType"] = event_type
