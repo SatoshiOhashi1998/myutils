@@ -57,12 +57,17 @@ def test_get_video_with_cache_returns_cached_video(tmp_path):
 
     result = api.get_video_with_cache("video1")
 
-    assert result is not None
-    assert result[0] == "video1"
-    assert result[1] == "キャッシュ動画"
-    assert result[2] == "channel1"
-    assert result[3] == "2025-07-01T00:00:00Z"
-    assert result[4] == 300
+    assert result == {
+        "video_id": "video1",
+        "title": "キャッシュ動画",
+        "channel_id": "channel1",
+        "published_at": "2025-07-01T00:00:00Z",
+        "duration": 300,
+        "thumbnail_default": None,
+        "thumbnail_medium": None,
+        "thumbnail_high": None,
+    }
+
     api.client.call.assert_not_called()
 
 

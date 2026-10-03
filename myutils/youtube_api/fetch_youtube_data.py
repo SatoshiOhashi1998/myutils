@@ -88,6 +88,21 @@ def _chunks(values, size):
     for i in range(0, len(values), size):
         yield values[i:i + size]
 
+def _video_row_to_dict(row):
+    if row is None:
+        return None
+
+    return {
+        "video_id": row[0],
+        "title": row[1],
+        "channel_id": row[2],
+        "published_at": row[3],
+        "duration": row[4],
+        "thumbnail_default": row[5],
+        "thumbnail_medium": row[6],
+        "thumbnail_high": row[7],
+    }
+
 
 # =============================================
 # YouTube API
@@ -106,7 +121,7 @@ class YouTubeAPI:
         result = self.db.get_video_by_id(video_id)
 
         if result:
-            return result
+            return _video_row_to_dict(result)
 
         response = self.client.call(
             "videos",
