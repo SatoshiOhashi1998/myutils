@@ -54,8 +54,25 @@ class YouTubeDB:
         );
         """)
 
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_channel_id ON videos(channel_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_videos_published_at ON videos(published_at DESC);")
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS video_live_state (
+            video_id TEXT PRIMARY KEY,
+            is_live INTEGER NOT NULL,
+            checked_at TEXT NOT NULL,
+            FOREIGN KEY (video_id)
+                REFERENCES videos(video_id)
+                ON DELETE CASCADE
+        );
+        """)
+
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_videos_channel_id "
+            "ON videos(channel_id);"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_videos_published_at "
+            "ON videos(published_at DESC);"
+        )
 
         conn.commit()
         conn.close()
@@ -237,6 +254,53 @@ class YouTubeDB:
             return []
 
         return json.loads(row[0])
+
+    def set_video_live_state(
+        self,
+        video_id,
+        is_live,
+        checked_at,
+    ):
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO video_live_state (
+                    video_id,
+                    is_live,
+                    checked_at
+                )
+                VALUES (?, ?, ?)
+                ON CONFLICT(video_id)
+                DO UPDATE SET
+                    is_live = excluded.is_live,
+                    checked_at = excluded.checked_at
+                """,
+                (
+                    video_id,
+                    int(is_live),
+                    checked_at,
+                ),
+            )
+            
+    def get_video_live_state(self, video_id):
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT video_id, is_live, checked_at
+                FROM video_live_state
+                WHERE video_id = ?
+                """,
+                (video_id,),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "video_id": row[0],
+            "is_live": bool(row[1]),
+            "checked_at": row[2],
+        }
 
     def get_channel_sync_state(self, channel_id):
         with self._connect() as conn:

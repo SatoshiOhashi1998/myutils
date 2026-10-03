@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 from myutils.youtube_api.fetch_youtube_data import (
@@ -1338,3 +1338,936 @@ def test_sync_channel_videos_skips_api_when_already_synced(tmp_path):
 
     assert result is True
     client.call.assert_not_called()
+
+def test_get_live_streaming_video_ids_returns_live_video_ids(tmp_path):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+
+    insert_video(api.db, video_id="video1")
+    insert_video(api.db, video_id="video2")
+    insert_video(api.db, video_id="video3")
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2025-07-01T00:00:00Z",
+                },
+            },
+            {"id": "video2"},
+            {
+                "id": "video3",
+                "liveStreamingDetails": {
+                    "scheduledStartTime": "2025-07-02T00:00:00Z",
+                },
+            },
+        ]
+    }
+
+    result = api.get_live_streaming_video_ids(
+        ["video1", "video2", "video3"]
+    )
+
+    assert result == {"video1", "video3"}
+
+def test_get_live_streaming_video_ids_batches_51_ids(tmp_path):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+
+    video_ids = [f"video{i}" for i in range(51)]
+
+    for video_id in video_ids:
+        insert_video(
+            api.db,
+            video_id=video_id,
+        )
+
+    api.client.call.return_value = {"items": []}
+
+    result = api.get_live_streaming_video_ids(video_ids)
+
+    assert result == set()
+    assert api.client.call.call_count == 2
+
+    first_ids = api.client.call.call_args_list[0].kwargs["id"].split(",")
+    second_ids = api.client.call.call_args_list[1].kwargs["id"].split(",")
+
+    assert len(first_ids) == 50
+    assert len(second_ids) == 1
+
+def test_get_live_streaming_video_ids_saves_live_state(tmp_path):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2025-07-01T00:00:00Z",
+                },
+            },
+        ]
+    }
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"]
+    )
+
+    assert result == {"video1"}
+
+    state = api.db.get_video_live_state("video1")
+
+    assert state["video_id"] == "video1"
+    assert state["is_live"] is True
+    assert state["checked_at"]
+
+def test_get_live_streaming_video_ids_uses_cached_state(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2025-07-01T00:00:00Z",
+                },
+            },
+        ]
+    }
+
+    first_result = api.get_live_streaming_video_ids(
+        ["video1"]
+    )
+
+    assert first_result == {"video1"}
+    api.client.call.assert_called_once()
+
+    api.client.call.reset_mock()
+
+    second_result = api.get_live_streaming_video_ids(
+        ["video1"]
+    )
+
+    assert second_result == {"video1"}
+    api.client.call.assert_not_called()
+
+def test_is_live_state_cache_valid_within_ttl(tmp_path):
+    api = create_api(tmp_path)
+
+    state = {
+        "video_id": "video1",
+        "is_live": True,
+        "checked_at": "2026-10-03T10:00:00Z",
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        59,
+        tzinfo=timezone.utc,
+    )
+
+    assert api.is_live_state_cache_valid(
+        state,
+        now=now,
+    ) is True
+
+def test_is_live_state_cache_invalid_after_ttl(tmp_path):
+    api = create_api(tmp_path)
+
+    state = {
+        "video_id": "video1",
+        "is_live": True,
+        "checked_at": "2026-10-03T10:00:00Z",
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        13,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    assert api.is_live_state_cache_valid(
+        state,
+        now=now,
+    ) is False
+
+def test_is_live_state_cache_invalid_when_state_is_none(tmp_path):
+    api = create_api(tmp_path)
+
+    assert api.is_live_state_cache_valid(None) is False
+
+def test_get_live_streaming_video_ids_refreshes_expired_cache(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    # 3時間以上前のキャッシュを用意する
+    api.db.set_video_live_state(
+        "video1",
+        False,
+        "2026-10-03T09:00:00Z",
+    )
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+        ]
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=now,
+    )
+
+    assert result == {"video1"}
+    api.client.call.assert_called_once_with(
+        "videos",
+        "list",
+        part="liveStreamingDetails",
+        id="video1",
+    )
+
+def test_get_live_streaming_video_ids_uses_valid_cached_state(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.db.set_video_live_state(
+        "video1",
+        True,
+        "2026-10-03T09:00:00Z",
+    )
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        11,
+        59,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=now,
+    )
+
+    assert result == {"video1"}
+    api.client.call.assert_not_called()
+
+def test_get_live_streaming_video_ids_uses_cached_not_live_state(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.db.set_video_live_state(
+        "video1",
+        False,
+        "2026-10-03T09:00:00Z",
+    )
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        11,
+        59,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=now,
+    )
+
+    assert result == set()
+    api.client.call.assert_not_called()
+
+def test_get_live_streaming_video_ids_updates_expired_cache(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.db.set_video_live_state(
+        "video1",
+        False,
+        "2026-10-03T09:00:00Z",
+    )
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+        ]
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=now,
+    )
+
+    assert result == {"video1"}
+
+    state = api.db.get_video_live_state("video1")
+
+    assert state["video_id"] == "video1"
+    assert state["is_live"] is True
+    assert state["checked_at"] == "2026-10-03T12:00:00Z"
+
+def test_get_live_streaming_video_ids_uses_cache_and_api(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+
+    for video_id in [
+        "video1",
+        "video2",
+        "video3",
+        "video4",
+    ]:
+        insert_video(
+            api.db,
+            video_id=video_id,
+        )
+
+    # 有効なキャッシュ
+    api.db.set_video_live_state(
+        "video1",
+        True,
+        "2026-10-03T10:00:00Z",
+    )
+
+    api.db.set_video_live_state(
+        "video2",
+        False,
+        "2026-10-03T10:00:00Z",
+    )
+
+    # video4 は期限切れ
+    api.db.set_video_live_state(
+        "video4",
+        False,
+        "2026-10-03T08:00:00Z",
+    )
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video3",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+            {
+                "id": "video4",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+        ]
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        [
+            "video1",
+            "video2",
+            "video3",
+            "video4",
+        ],
+        now=now,
+    )
+
+    assert result == {
+        "video1",
+        "video3",
+        "video4",
+    }
+
+    api.client.call.assert_called_once_with(
+        "videos",
+        "list",
+        part="liveStreamingDetails",
+        id="video3,video4",
+    )
+
+# ----------------------------------------------------------------------
+# Live streaming cache
+# ----------------------------------------------------------------------
+
+
+def test_get_live_streaming_video_ids_returns_live_video_ids(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+
+    insert_video(api.db, video_id="video1")
+    insert_video(api.db, video_id="video2")
+    insert_video(api.db, video_id="video3")
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2025-07-01T00:00:00Z",
+                },
+            },
+            {"id": "video2"},
+            {
+                "id": "video3",
+                "liveStreamingDetails": {
+                    "scheduledStartTime": "2025-07-02T00:00:00Z",
+                },
+            },
+        ]
+    }
+
+    result = api.get_live_streaming_video_ids(
+        ["video1", "video2", "video3"]
+    )
+
+    assert result == {"video1", "video3"}
+
+    api.client.call.assert_called_once_with(
+        "videos",
+        "list",
+        part="liveStreamingDetails",
+        id="video1,video2,video3",
+    )
+
+
+def test_get_live_streaming_video_ids_uses_valid_live_cache(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.db.set_video_live_state(
+        "video1",
+        True,
+        "2026-10-03T09:00:00Z",
+    )
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        11,
+        59,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=now,
+    )
+
+    assert result == {"video1"}
+    api.client.call.assert_not_called()
+
+
+def test_get_live_streaming_video_ids_uses_valid_not_live_cache(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.db.set_video_live_state(
+        "video1",
+        False,
+        "2026-10-03T09:00:00Z",
+    )
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        11,
+        59,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=now,
+    )
+
+    assert result == set()
+    api.client.call.assert_not_called()
+
+
+def test_get_live_streaming_video_ids_refreshes_expired_cache(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.db.set_video_live_state(
+        "video1",
+        False,
+        "2026-10-03T09:00:00Z",
+    )
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+        ]
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=now,
+    )
+
+    assert result == {"video1"}
+
+    api.client.call.assert_called_once_with(
+        "videos",
+        "list",
+        part="liveStreamingDetails",
+        id="video1",
+    )
+
+
+def test_get_live_streaming_video_ids_updates_expired_cache(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.db.set_video_live_state(
+        "video1",
+        False,
+        "2026-10-03T09:00:00Z",
+    )
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+        ]
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=now,
+    )
+
+    assert result == {"video1"}
+
+    state = api.db.get_video_live_state("video1")
+
+    assert state == {
+        "video_id": "video1",
+        "is_live": True,
+        "checked_at": "2026-10-03T12:00:00Z",
+    }
+
+
+def test_get_live_streaming_video_ids_uses_cache_and_api(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+
+    for video_id in [
+        "video1",
+        "video2",
+        "video3",
+        "video4",
+    ]:
+        insert_video(
+            api.db,
+            video_id=video_id,
+        )
+
+    # 有効なキャッシュ
+    api.db.set_video_live_state(
+        "video1",
+        True,
+        "2026-10-03T10:00:00Z",
+    )
+
+    api.db.set_video_live_state(
+        "video2",
+        False,
+        "2026-10-03T10:00:00Z",
+    )
+
+    # video4 はTTL切れ
+    api.db.set_video_live_state(
+        "video4",
+        False,
+        "2026-10-03T08:00:00Z",
+    )
+
+    # video3 はキャッシュなし
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video3",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+            {
+                "id": "video4",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+        ]
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    state = api.db.get_video_live_state("video1")
+
+    print("STATE:", state)
+    print(
+        "CACHE VALID:",
+        api.is_live_state_cache_valid(
+            state,
+            now=now,
+        ),
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1", "video2", "video3", "video4"],
+        now=now,
+    )
+
+    assert result == {
+        "video1",
+        "video3",
+        "video4",
+    }
+
+    api.client.call.assert_called_once_with(
+        "videos",
+        "list",
+        part="liveStreamingDetails",
+        id="video3,video4",
+    )
+
+
+def test_get_live_streaming_video_ids_batches_51_ids(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+
+    video_ids = [
+        f"video{i}"
+        for i in range(51)
+    ]
+
+    for video_id in video_ids:
+        insert_video(
+            api.db,
+            video_id=video_id,
+        )
+
+    api.client.call.return_value = {
+        "items": []
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        video_ids,
+        now=now,
+    )
+
+    assert result == set()
+    assert api.client.call.call_count == 2
+
+    first_ids = (
+        api.client.call.call_args_list[0]
+        .kwargs["id"]
+        .split(",")
+    )
+
+    second_ids = (
+        api.client.call.call_args_list[1]
+        .kwargs["id"]
+        .split(",")
+    )
+
+    assert len(first_ids) == 50
+    assert len(second_ids) == 1
+
+
+def test_get_live_streaming_video_ids_returns_empty_for_empty_input(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    result = api.get_live_streaming_video_ids([])
+
+    assert result == set()
+    api.client.call.assert_not_called()
+
+
+def test_get_live_streaming_video_ids_caches_missing_api_items(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+    insert_video(api.db, video_id="video2")
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+        ]
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1", "video2"],
+        now=now,
+    )
+
+    assert result == {"video1"}
+
+    state = api.db.get_video_live_state("video2")
+
+    assert state == {
+        "video_id": "video2",
+        "is_live": False,
+        "checked_at": "2026-10-03T12:00:00Z",
+    }
+
+
+def test_get_live_streaming_video_ids_uses_cached_state_on_second_call(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+        ]
+    }
+
+    first_now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    first_result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=first_now,
+    )
+
+    assert first_result == {"video1"}
+    api.client.call.assert_called_once()
+
+    api.client.call.reset_mock()
+
+    second_now = datetime(
+        2026,
+        10,
+        3,
+        14,
+        59,
+        tzinfo=timezone.utc,
+    )
+
+    second_result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=second_now,
+    )
+
+    assert second_result == {"video1"}
+    api.client.call.assert_not_called()
+
+
+def test_get_live_streaming_video_ids_refreshes_cache_at_exact_ttl(
+    tmp_path,
+):
+    api = create_api(tmp_path)
+
+    insert_channel(api.db)
+    insert_video(api.db, video_id="video1")
+
+    api.db.set_video_live_state(
+        "video1",
+        False,
+        "2026-10-03T09:00:00Z",
+    )
+
+    api.client.call.return_value = {
+        "items": [
+            {
+                "id": "video1",
+                "liveStreamingDetails": {
+                    "actualStartTime": "2026-10-03T12:00:00Z",
+                },
+            },
+        ]
+    }
+
+    now = datetime(
+        2026,
+        10,
+        3,
+        12,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    result = api.get_live_streaming_video_ids(
+        ["video1"],
+        now=now,
+    )
+
+    assert result == {"video1"}
+    api.client.call.assert_called_once()

@@ -2,7 +2,7 @@
 # ---------------------------------------------
 # YouTube Data API
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from .converters import (
     channel_from_api_item,
@@ -15,6 +15,8 @@ from .converters import (
 # =============================================
 # Utility / Conversion
 # =============================================
+
+LIVE_STATE_TTL = timedelta(hours=3)
 
 def _to_utc_z(value):
     if isinstance(value, datetime):
@@ -533,10 +535,43 @@ class YouTubeAPI:
     # Live Streaming
     # -----------------------------------------
 
-    def get_live_streaming_video_ids(self, video_ids):
-        live_video_ids = set()
+    def is_live_state_cache_valid(
+        self,
+        state,
+        now=None,
+    ):
+        if state is None:
+            return False
 
-        for batch_ids in _chunks(video_ids, 50):
+        if now is None:
+            now = datetime.now(timezone.utc)
+
+        checked_at = datetime.fromisoformat(
+            state["checked_at"].replace("Z", "+00:00")
+        )
+
+        return now - checked_at < LIVE_STATE_TTL
+
+
+    def get_live_streaming_video_ids(self, video_ids, now=None):
+        live_video_ids = set()
+        uncached_video_ids = []
+
+        if now is None:
+            now = datetime.now(timezone.utc)
+
+
+        for video_id in video_ids:
+            state = self.db.get_video_live_state(video_id)
+
+            if not self.is_live_state_cache_valid(state, now=now):
+                uncached_video_ids.append(video_id)
+                continue
+
+            if state["is_live"]:
+                live_video_ids.add(video_id)
+
+        for batch_ids in _chunks(uncached_video_ids, 50):
 
             if not batch_ids:
                 continue
@@ -548,8 +583,33 @@ class YouTubeAPI:
                 id=",".join(batch_ids),
             )
 
+            checked_at = now.strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+
+            returned_video_ids = set()
+
             for item in response.get("items", []):
-                if "liveStreamingDetails" in item:
-                    live_video_ids.add(item["id"])
+                video_id = item["id"]
+                returned_video_ids.add(video_id)
+
+                is_live = "liveStreamingDetails" in item
+
+                self.db.set_video_live_state(
+                    video_id,
+                    is_live,
+                    checked_at,
+                )
+
+                if is_live:
+                    live_video_ids.add(video_id)
+
+            for video_id in batch_ids:
+                if video_id not in returned_video_ids:
+                    self.db.set_video_live_state(
+                        video_id,
+                        False,
+                        checked_at,
+                    )
 
         return live_video_ids

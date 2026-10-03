@@ -666,3 +666,86 @@ def test_channel_sync_state_preserves_existing_values(tmp_path):
         "2026-01-01T00:00:00Z",
         "2026-10-02T00:00:00Z",
     )
+
+def test_set_and_get_video_live_state(tmp_path):
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    db.insert_channel(
+        "channel1",
+        "Test Channel",
+    )
+
+    db.insert_video(
+        {
+            "video_id": "video1",
+            "title": "Test Video",
+            "channel_id": "channel1",
+            "published_at": "2026-10-01T00:00:00Z",
+            "duration": 100,
+            "thumbnail_default": None,
+            "thumbnail_medium": None,
+            "thumbnail_high": None,
+        }
+    )
+
+    db.set_video_live_state(
+        "video1",
+        True,
+        "2026-10-03T05:00:00Z",
+    )
+
+    result = db.get_video_live_state("video1")
+
+    assert result == {
+        "video_id": "video1",
+        "is_live": True,
+        "checked_at": "2026-10-03T05:00:00Z",
+    }
+
+def test_set_video_live_state_updates_existing_state(tmp_path):
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    db.insert_channel(
+        "channel1",
+        "Test Channel",
+    )
+
+    db.insert_video(
+        {
+            "video_id": "video1",
+            "title": "Test Video",
+            "channel_id": "channel1",
+            "published_at": "2026-10-01T00:00:00Z",
+            "duration": 100,
+            "thumbnail_default": None,
+            "thumbnail_medium": None,
+            "thumbnail_high": None,
+        }
+    )
+
+    db.set_video_live_state(
+        "video1",
+        True,
+        "2026-10-03T05:00:00Z",
+    )
+
+    db.set_video_live_state(
+        "video1",
+        False,
+        "2026-10-03T06:00:00Z",
+    )
+
+    result = db.get_video_live_state("video1")
+
+    assert result == {
+        "video_id": "video1",
+        "is_live": False,
+        "checked_at": "2026-10-03T06:00:00Z",
+    }
+
+def test_get_video_live_state_returns_none_for_unknown_video(
+    tmp_path,
+):
+    db = YouTubeDB(tmp_path / "youtube.db")
+
+    assert db.get_video_live_state("unknown") is None
