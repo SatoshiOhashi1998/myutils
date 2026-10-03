@@ -2,7 +2,8 @@
 # ---------------------------------------------
 # YouTube Data API
 
-from datetime import datetime, timezone, timedelta
+import re
+from datetime import date, datetime, time, timedelta, timezone
 
 from .converters import (
     channel_from_api_item,
@@ -17,21 +18,71 @@ from .converters import (
 # =============================================
 
 LIVE_STATE_TTL = timedelta(hours=3)
+UTC = timezone.utc
 
-def _to_utc_z(value):
+def _to_utc_z(value: str | date | datetime | None, *, end_date: bool = False) -> str | None:
+    """日付/日時をYouTube API・youtube.db用のUTC ISO文字列へ変換する。"""
+    if value is None:
+        return None
+
     if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        dt = value
 
-    if isinstance(value, str):
-        if value.endswith("Z"):
-            return value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
 
-        if len(value) == 10:
-            return value + "T00:00:00Z"
+        dt = dt.astimezone(UTC)
 
-        return value + "Z"
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    return value
+    if isinstance(value, date):
+        dt = datetime.combine(
+            value,
+            time.min,
+            tzinfo=UTC,
+        )
+
+        if end_date:
+            dt += timedelta(days=1)
+
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    text = str(value).strip()
+
+    if not text:
+        raise ValueError("date is required")
+
+    # YYYY-M-D / YYYY-MM-DD の両方を許可する
+    match = re.fullmatch(
+        r"(\d{4})-(\d{1,2})-(\d{1,2})",
+        text,
+    )
+
+    if match:
+        year, month, day = map(int, match.groups())
+
+        parsed_date = date(
+            year,
+            month,
+            day,
+        )
+
+        return _to_utc_z(
+            parsed_date,
+            end_date=end_date,
+        )
+
+    # 日付以外の日時文字列
+    normalized = text.replace("Z", "+00:00")
+
+    dt = datetime.fromisoformat(normalized)
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+
+    dt = dt.astimezone(UTC)
+
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 def _chunks(values, size):
     for i in range(0, len(values), size):
