@@ -1,15 +1,26 @@
-import os
-import json
-import sqlite3
 import csv
+import json
+import os
+import sqlite3
+
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
 
 class YouTubeDB:
+    """YouTube関連データをSQLiteで管理する。"""
+
+    # ============================================================
+    # Initialization
+    # ============================================================
+
     def __init__(self, db_path=None):
-        self.db_path = db_path or os.getenv("YOUTUBE_DB_PATH", "youtube.db")
+        self.db_path = db_path or os.getenv(
+            "YOUTUBE_DB_PATH",
+            "youtube.db",
+        )
         self._init_db()
 
     def _connect(self):
@@ -21,137 +32,211 @@ class YouTubeDB:
         conn = self._connect()
         cursor = conn.cursor()
 
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS channels (
-            channel_id TEXT PRIMARY KEY,
-            channel_title TEXT NOT NULL,
-            tags TEXT
-        );
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS channel_sync_state (
-            channel_id TEXT PRIMARY KEY,
-            uploads_playlist_id TEXT,
-            oldest_synced_at TEXT,
-            newest_synced_at TEXT,
-            FOREIGN KEY (channel_id)
-                REFERENCES channels(channel_id)
-                ON DELETE CASCADE
-        );
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS videos (
-            video_id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            channel_id TEXT NOT NULL,
-            published_at TEXT,
-            duration INTEGER,
-            thumbnail_default TEXT,
-            thumbnail_medium TEXT,
-            thumbnail_high TEXT,
-            FOREIGN KEY (channel_id) REFERENCES channels(channel_id)
-        );
-        """)
-
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS video_live_state (
-            video_id TEXT PRIMARY KEY,
-            is_live INTEGER NOT NULL,
-            checked_at TEXT NOT NULL,
-            FOREIGN KEY (video_id)
-                REFERENCES videos(video_id)
-                ON DELETE CASCADE
-        );
-        """)
+        # --------------------------------------------------------
+        # Channels
+        # --------------------------------------------------------
 
         cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_videos_channel_id "
-            "ON videos(channel_id);"
+            """
+            CREATE TABLE IF NOT EXISTS channels (
+                channel_id TEXT PRIMARY KEY,
+                channel_title TEXT NOT NULL,
+                tags TEXT
+            );
+            """
         )
+
+        # --------------------------------------------------------
+        # Channel sync state
+        # --------------------------------------------------------
+
         cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_videos_published_at "
-            "ON videos(published_at DESC);"
+            """
+            CREATE TABLE IF NOT EXISTS channel_sync_state (
+                channel_id TEXT PRIMARY KEY,
+                uploads_playlist_id TEXT,
+                oldest_synced_at TEXT,
+                newest_synced_at TEXT,
+                FOREIGN KEY (channel_id)
+                    REFERENCES channels(channel_id)
+                    ON DELETE CASCADE
+            );
+            """
+        )
+
+        # --------------------------------------------------------
+        # Videos
+        # --------------------------------------------------------
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS videos (
+                video_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                channel_id TEXT NOT NULL,
+                published_at TEXT,
+                duration INTEGER,
+                thumbnail_default TEXT,
+                thumbnail_medium TEXT,
+                thumbnail_high TEXT,
+                FOREIGN KEY (channel_id)
+                    REFERENCES channels(channel_id)
+            );
+            """
+        )
+
+        # --------------------------------------------------------
+        # Video live state
+        # --------------------------------------------------------
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS video_live_state (
+                video_id TEXT PRIMARY KEY,
+                is_live INTEGER NOT NULL,
+                checked_at TEXT NOT NULL,
+                FOREIGN KEY (video_id)
+                    REFERENCES videos(video_id)
+                    ON DELETE CASCADE
+            );
+            """
+        )
+
+        # --------------------------------------------------------
+        # Indexes
+        # --------------------------------------------------------
+
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_videos_channel_id
+            ON videos(channel_id);
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_videos_published_at
+            ON videos(published_at DESC);
+            """
         )
 
         conn.commit()
         conn.close()
 
+    # ============================================================
+    # Channel
+    # ============================================================
+
     def insert_channel(self, channel_id, channel_title):
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR IGNORE INTO channels (channel_id, channel_title)
+                INSERT OR IGNORE INTO channels (
+                    channel_id,
+                    channel_title
+                )
                 VALUES (?, ?)
                 """,
-                (channel_id, channel_title),
+                (
+                    channel_id,
+                    channel_title,
+                ),
             )
-
-    def insert_video(self, video):
-        self.upsert_video(video)
-
-    def get_video_by_id(self, video_id):
-        """
-        指定された video_id の動画情報を取得します。
-        """
-        with self._connect() as conn:
-            return conn.execute(
-                "SELECT * FROM videos WHERE video_id = ?",
-                (video_id,),
-            ).fetchone()
-
-    def update_video_duration(self, video_id, duration):
-        with self._connect() as conn:
-            conn.execute(
-                """
-                UPDATE videos SET duration = ?
-                WHERE video_id = ?
-                """,
-                (duration, video_id),
-            )
-
-    def search_channels_by_title(self, keyword):
-        query = """
-            SELECT channel_id, channel_title
-            FROM channels
-            WHERE channel_title LIKE ?
-        """
-        param = f"%{keyword}%"
-
-        with self._connect() as conn:
-            return conn.execute(query, (param,)).fetchall()
 
     def get_channel_by_id(self, channel_id):
         with self._connect() as conn:
             return conn.execute(
                 """
-                SELECT channel_id, channel_title
+                SELECT
+                    channel_id,
+                    channel_title
                 FROM channels
                 WHERE channel_id = ?
                 """,
                 (channel_id,),
             ).fetchone()
 
-    def get_videos_by_channel_and_date(self, channel_id, start_date, end_date):
+    def search_channels_by_title(self, keyword):
+        query = """
+            SELECT
+                channel_id,
+                channel_title
+            FROM channels
+            WHERE channel_title LIKE ?
         """
-        指定チャンネル・指定期間の動画を取得する。
 
-        start_date は含む。
-        end_date は含まない。
-        """
+        param = f"%{keyword}%"
+
         with self._connect() as conn:
             return conn.execute(
-                """
-                SELECT *
-                FROM videos
-                WHERE channel_id = ?
-                  AND published_at >= ?
-                  AND published_at < ?
-                ORDER BY published_at DESC
-                """,
-                (channel_id, start_date, end_date),
+                query,
+                (param,),
             ).fetchall()
+
+    # ============================================================
+    # Channel tags
+    # ============================================================
+
+    def update_channel_tags(self, channel_id, tags):
+        """
+        指定チャンネルのタグを更新する。
+
+        tags:
+            list[str]
+        """
+        tags_json = json.dumps(
+            tags,
+            ensure_ascii=False,
+        )
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE channels
+                SET tags = ?
+                WHERE channel_id = ?
+                """,
+                (
+                    tags_json,
+                    channel_id,
+                ),
+            )
+
+    def get_channel_tags(self, channel_id):
+        """
+        指定チャンネルのタグを取得する。
+
+        Returns:
+            list[str]:
+                タグが未設定の場合は空のリスト。
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT tags
+                FROM channels
+                WHERE channel_id = ?
+                """,
+                (channel_id,),
+            ).fetchone()
+
+        if row is None or row[0] is None:
+            return []
+
+        return json.loads(row[0])
+
+    # ============================================================
+    # Video
+    # ============================================================
+
+    def insert_video(self, video):
+        """
+        動画を登録する。
+
+        既存のvideo_idがある場合は更新する。
+        実際のUPSERT処理はupsert_video()に委譲する。
+        """
+        self.upsert_video(video)
 
     def upsert_video(self, video):
         with self._connect() as conn:
@@ -192,51 +277,66 @@ class YouTubeDB:
                 ),
             )
 
-    def update_channel_tags(self, channel_id, tags):
+    def get_video_by_id(self, video_id):
         """
-        指定チャンネルのタグを更新する。
-
-        tags:
-            list[str]
+        指定されたvideo_idの動画情報を取得する。
         """
-        tags_json = json.dumps(
-            tags,
-            ensure_ascii=False,
-        )
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT *
+                FROM videos
+                WHERE video_id = ?
+                """,
+                (video_id,),
+            ).fetchone()
 
+    def get_videos_by_channel_and_date(
+        self,
+        channel_id,
+        start_date,
+        end_date,
+    ):
+        """
+        指定チャンネル・指定期間の動画を取得する。
+
+        start_date は含む。
+        end_date は含まない。
+        """
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT *
+                FROM videos
+                WHERE channel_id = ?
+                  AND published_at >= ?
+                  AND published_at < ?
+                ORDER BY published_at DESC
+                """,
+                (
+                    channel_id,
+                    start_date,
+                    end_date,
+                ),
+            ).fetchall()
+
+    def update_video_duration(self, video_id, duration):
         with self._connect() as conn:
             conn.execute(
                 """
-                UPDATE channels
-                SET tags = ?
-                WHERE channel_id = ?
+                UPDATE videos
+                SET duration = ?
+                WHERE video_id = ?
                 """,
-                (tags_json, channel_id),
+                (
+                    duration,
+                    video_id,
+                ),
             )
 
-
-    def get_channel_tags(self, channel_id):
-        """
-        指定チャンネルのタグを取得する。
-
-        Returns:
-            list[str]:
-                タグが未設定の場合は空のリスト。
-        """
-        with self._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT tags
-                FROM channels
-                WHERE channel_id = ?
-                """,
-                (channel_id,),
-            ).fetchone()
-
-        if row is None or row[0] is None:
-            return []
-
-        return json.loads(row[0])
+    # ============================================================
+    # Video live state
+    # ============================================================
 
     def set_video_live_state(
         self,
@@ -264,12 +364,15 @@ class YouTubeDB:
                     checked_at,
                 ),
             )
-            
+
     def get_video_live_state(self, video_id):
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT video_id, is_live, checked_at
+                SELECT
+                    video_id,
+                    is_live,
+                    checked_at
                 FROM video_live_state
                 WHERE video_id = ?
                 """,
@@ -284,6 +387,10 @@ class YouTubeDB:
             "is_live": bool(row[1]),
             "checked_at": row[2],
         }
+
+    # ============================================================
+    # Channel sync state
+    # ============================================================
 
     def get_channel_sync_state(self, channel_id):
         with self._connect() as conn:
@@ -343,7 +450,10 @@ class YouTubeDB:
                 ),
             )
 
-    # for debug 
+    # ============================================================
+    # Debug / Export
+    # ============================================================
+
     def print_table(self, table_name):
         with self._connect() as conn:
             cursor = conn.execute(
@@ -351,21 +461,36 @@ class YouTubeDB:
             )
 
             rows = cursor.fetchall()
-            columns = [description[0] for description in cursor.description]
+            columns = [
+                description[0]
+                for description in cursor.description
+            ]
 
         print(f"\n=== {table_name} ===")
         print(" | ".join(columns))
 
         for row in rows:
-            print(" | ".join(str(value) for value in row))
+            print(
+                " | ".join(
+                    str(value)
+                    for value in row
+                )
+            )
 
-    def export_table_to_csv(self, table_name, output_path):
+    def export_table_to_csv(
+        self,
+        table_name,
+        output_path,
+    ):
         with self._connect() as conn:
             cursor = conn.execute(
                 f"SELECT * FROM {table_name}"
             )
 
-            columns = [description[0] for description in cursor.description]
+            columns = [
+                description[0]
+                for description in cursor.description
+            ]
             rows = cursor.fetchall()
 
         with open(
@@ -379,7 +504,10 @@ class YouTubeDB:
             writer.writerow(columns)
             writer.writerows(rows)
 
-    def export_channel_video_summary_to_csv(self, output_path):
+    def export_channel_video_summary_to_csv(
+        self,
+        output_path,
+    ):
         with self._connect() as conn:
             rows = conn.execute(
                 """
@@ -451,4 +579,9 @@ class YouTubeDB:
         )
 
         for row in rows:
-            print(" | ".join(str(value) for value in row))
+            print(
+                " | ".join(
+                    str(value)
+                    for value in row
+                )
+            )
