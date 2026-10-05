@@ -1,6 +1,7 @@
 import os
 import json
 import sqlite3
+import csv
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -88,25 +89,7 @@ class YouTubeDB:
             )
 
     def insert_video(self, video):
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO videos (
-                    video_id, title, channel_id, published_at, duration,
-                    thumbnail_default, thumbnail_medium, thumbnail_high
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    video["video_id"],
-                    video["title"],
-                    video["channel_id"],
-                    video.get("published_at"),
-                    video.get("duration"),
-                    video.get("thumbnail_default"),
-                    video.get("thumbnail_medium"),
-                    video.get("thumbnail_high"),
-                ),
-            )
+        self.upsert_video(video)
 
     def get_video_by_id(self, video_id):
         """
@@ -359,3 +342,113 @@ class YouTubeDB:
                     newest_synced_at,
                 ),
             )
+
+    # for debug 
+    def print_table(self, table_name):
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"SELECT * FROM {table_name}"
+            )
+
+            rows = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+
+        print(f"\n=== {table_name} ===")
+        print(" | ".join(columns))
+
+        for row in rows:
+            print(" | ".join(str(value) for value in row))
+
+    def export_table_to_csv(self, table_name, output_path):
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"SELECT * FROM {table_name}"
+            )
+
+            columns = [description[0] for description in cursor.description]
+            rows = cursor.fetchall()
+
+        with open(
+            output_path,
+            "w",
+            newline="",
+            encoding="utf-8-sig",
+        ) as f:
+            writer = csv.writer(f)
+
+            writer.writerow(columns)
+            writer.writerows(rows)
+
+    def export_channel_video_summary_to_csv(self, output_path):
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    c.channel_id,
+                    c.channel_title,
+                    COUNT(v.video_id) AS video_count,
+                    MIN(v.published_at) AS oldest_published_at,
+                    MAX(v.published_at) AS newest_published_at
+                FROM channels c
+                LEFT JOIN videos v
+                    ON c.channel_id = v.channel_id
+                GROUP BY
+                    c.channel_id,
+                    c.channel_title
+                ORDER BY
+                    c.channel_id
+                """
+            ).fetchall()
+
+        with open(
+            output_path,
+            "w",
+            newline="",
+            encoding="utf-8-sig",
+        ) as f:
+            writer = csv.writer(f)
+
+            writer.writerow(
+                [
+                    "channel_id",
+                    "channel_title",
+                    "video_count",
+                    "oldest_published_at",
+                    "newest_published_at",
+                ]
+            )
+
+            writer.writerows(rows)
+
+    def print_channel_video_summary(self):
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    c.channel_id,
+                    c.channel_title,
+                    COUNT(v.video_id) AS video_count,
+                    MIN(v.published_at) AS oldest_published_at,
+                    MAX(v.published_at) AS newest_published_at
+                FROM channels c
+                LEFT JOIN videos v
+                    ON c.channel_id = v.channel_id
+                GROUP BY
+                    c.channel_id,
+                    c.channel_title
+                ORDER BY
+                    c.channel_id
+                """
+            ).fetchall()
+
+        print("\n=== channel video summary ===")
+        print(
+            "channel_id | "
+            "channel_title | "
+            "video_count | "
+            "oldest_published_at | "
+            "newest_published_at"
+        )
+
+        for row in rows:
+            print(" | ".join(str(value) for value in row))

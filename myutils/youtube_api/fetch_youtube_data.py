@@ -267,6 +267,112 @@ class YouTubeAPI:
     # -----------------------------------------
     # Fetch / Save Videos
     # -----------------------------------------
+    def _fetch_channel_uploads_playlist_id(self, channel_id):
+        response = self.client.call(
+            "channels",
+            "list",
+            part="contentDetails,snippet",
+            id=channel_id,
+        )
+
+        items = response.get("items", [])
+
+        if not items:
+            return None
+
+        item = items[0]
+
+        content_details = item.get("contentDetails", {})
+        related_playlists = content_details.get(
+            "relatedPlaylists",
+            {},
+        )
+
+        uploads_playlist_id = related_playlists.get("uploads")
+
+        if not uploads_playlist_id:
+            return None
+
+        snippet = item.get("snippet", {})
+        channel_title = snippet.get("title")
+
+        if channel_title:
+            self.db.insert_channel(
+                channel_id,
+                channel_title,
+            )
+
+        return uploads_playlist_id
+
+    def refresh_channel_videos(
+        self,
+        channel_id,
+        start_date,
+        end_date,
+        max_results=50,
+    ):
+        start = to_utc_z(start_date)
+        end = to_utc_z(end_date)
+
+        playlist_id = self._fetch_channel_uploads_playlist_id(
+            channel_id
+        )
+
+        if not playlist_id:
+            return False
+
+        next_page_token = None
+
+        while True:
+            response = self.get_playlist_videos(
+                playlist_id,
+                max_results=max_results,
+                page_token=next_page_token,
+            )
+
+            items = response.get("items", [])
+
+            if not items:
+                break
+
+            reached_start = False
+
+            for item in items:
+                video = video_from_playlist_item(item)
+
+                video_id = video["video_id"]
+                published_at = video["published_at"]
+
+                if not video_id or not published_at:
+                    continue
+
+                if video["channel_id"] is None:
+                    video["channel_id"] = channel_id
+
+                if published_at >= start:
+                    if published_at < end:
+                        self.db.insert_video(video)
+
+                if published_at < start:
+                    reached_start = True
+
+            if reached_start:
+                break
+
+            next_page_token = response.get("nextPageToken")
+
+            if not next_page_token:
+                break
+
+        # ここまで正常終了した場合だけ同期状態を更新する
+        self.db.set_channel_sync_state(
+            channel_id,
+            uploads_playlist_id=playlist_id,
+            oldest_synced_at=start,
+            newest_synced_at=end,
+        )
+
+        return True
 
     def fetch_and_save_videos_from_channel(
         self,
@@ -339,7 +445,7 @@ class YouTubeAPI:
             start,
             end,
         )
-    
+
     def fetch_and_save_videos_from_playlist(
         self,
         playlist_id,
@@ -439,7 +545,6 @@ class YouTubeAPI:
         self.db.set_channel_sync_state(
             channel_id,
             uploads_playlist_id=playlist_id,
-            oldest_synced_at=start,
             newest_synced_at=end,
         )
 
