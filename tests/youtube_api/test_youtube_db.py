@@ -147,7 +147,7 @@ def test_get_video_by_id_returns_none_when_not_found(tmp_path):
     assert result is None
 
 
-def test_insert_video_does_not_duplicate(tmp_path):
+def test_insert_video_updates_existing(tmp_path):
     db = create_db(tmp_path)
     create_channel(db)
 
@@ -160,6 +160,7 @@ def test_insert_video_does_not_duplicate(tmp_path):
     }
 
     db.insert_video(video)
+
     db.insert_video(
         {
             **video,
@@ -170,8 +171,11 @@ def test_insert_video_does_not_duplicate(tmp_path):
 
     result = db.get_video_by_id("video1")
 
-    assert result[1] == "Original Title"
-    assert result[4] == 120
+    assert result[0] == "video1"
+    assert result[1] == "Updated Title"
+    assert result[2] == "channel1"
+    assert result[3] == "2026-01-01T00:00:00Z"
+    assert result[4] == 240
 
 
 def test_insert_video_requires_existing_channel(tmp_path):

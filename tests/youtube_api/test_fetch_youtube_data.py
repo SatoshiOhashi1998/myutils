@@ -1354,7 +1354,7 @@ def test_sync_channel_videos(tmp_path):
     assert state == (
         "channel-1",
         "playlist-1",
-        "2026-08-01T00:00:00Z",
+        None,
         "2026-10-01T00:00:00Z",
     )
 
