@@ -131,11 +131,17 @@ class YouTubeAPI:
     # ========================================================
 
     def get_channel_with_cache(self, channel_id):
+        print(f"[YouTubeAPI] get_channel_with_cache: channel_id={channel_id}")
+
         result = self.db.get_channel_by_id(channel_id)
 
         if result:
+            print("[Cache] channel -> HIT")
+            print("[Result] source=DB")
             return result
 
+        print("[Cache] channel -> MISS")
+        print(f"[API] channels.list: channel_id={channel_id}")
         response = self.client.call(
             "channels",
             "list",
@@ -146,6 +152,7 @@ class YouTubeAPI:
         items = response.get("items", [])
 
         if not items:
+            print("[Result] channel -> NOT_FOUND")
             return None
 
         channel = channel_from_api_item(items[0])
@@ -154,18 +161,30 @@ class YouTubeAPI:
             channel["channel_id"],
             channel["channel_title"],
         )
+        print(f"[DB] channel -> INSERT: channel_id={channel['channel_id']}")
+        print("[Result] source=API")
 
         return (
             channel["channel_id"],
             channel["channel_title"],
         )
 
+
     def get_channel_uploads_playlist_id(self, channel_id):
+        print(
+            f"[YouTubeAPI] get_channel_uploads_playlist_id: "
+            f"channel_id={channel_id}"
+        )
+
         state = self.db.get_channel_sync_state(channel_id)
 
         if state and state[1]:
+            print("[Cache] uploads_playlist_id -> HIT")
+            print(f"[Result] playlist_id={state[1]}")
             return state[1]
 
+        print("[Cache] uploads_playlist_id -> MISS")
+        print(f"[API] channels.list: channel_id={channel_id}")
         response = self.client.call(
             "channels",
             "list",
@@ -176,6 +195,7 @@ class YouTubeAPI:
         items = response.get("items", [])
 
         if not items:
+            print("[Result] channel -> NOT_FOUND")
             return None
 
         item = items[0]
@@ -195,6 +215,7 @@ class YouTubeAPI:
         )
 
         if not uploads_playlist_id:
+            print("[Result] uploads_playlist_id -> NOT_FOUND")
             return None
 
         snippet = item.get("snippet", {})
@@ -205,13 +226,20 @@ class YouTubeAPI:
                 channel_id,
                 channel_title,
             )
+            print(f"[DB] channel -> INSERT/IGNORE: channel_id={channel_id}")
 
         self.db.set_channel_sync_state(
             channel_id,
             uploads_playlist_id=uploads_playlist_id,
         )
+        print(
+            "[DB] sync_state -> UPDATE: "
+            f"channel_id={channel_id} uploads_playlist_id={uploads_playlist_id}"
+        )
+        print(f"[Result] playlist_id={uploads_playlist_id}")
 
         return uploads_playlist_id
+
 
     def _fetch_channel_uploads_playlist_id(self, channel_id):
         response = self.client.call(
@@ -261,11 +289,17 @@ class YouTubeAPI:
     # ========================================================
 
     def get_video_with_cache(self, video_id):
+        print(f"[YouTubeAPI] get_video_with_cache: video_id={video_id}")
+
         result = self.db.get_video_by_id(video_id)
 
         if result:
+            print("[Cache] video -> HIT")
+            print("[Result] source=DB")
             return _video_row_to_dict(result)
 
+        print("[Cache] video -> MISS")
+        print(f"[API] videos.list: video_id={video_id}")
         response = self.client.call(
             "videos",
             "list",
@@ -276,6 +310,7 @@ class YouTubeAPI:
         items = response.get("items", [])
 
         if not items:
+            print("[Result] video -> NOT_FOUND")
             return None
 
         item = items[0]
@@ -286,8 +321,11 @@ class YouTubeAPI:
         )
 
         self.db.insert_video(video)
+        print(f"[DB] video -> INSERT/UPSERT: video_id={video_id}")
+        print("[Result] source=API")
 
         return video
+
 
     # ========================================================
     # Channel video sync
@@ -302,21 +340,37 @@ class YouTubeAPI:
         state = self.db.get_channel_sync_state(channel_id)
 
         if not state:
+            print(
+                f"[Cache] sync -> NOT_FOUND: channel_id={channel_id}"
+            )
             return False
 
         oldest_synced_at = state[2]
         newest_synced_at = state[3]
 
         if not oldest_synced_at or not newest_synced_at:
+            print(
+                f"[Cache] sync -> INCOMPLETE: channel_id={channel_id} "
+                f"cached={oldest_synced_at}..{newest_synced_at}"
+            )
             return False
 
         start = to_utc_z(start_date)
         end = to_utc_z(end_date)
 
-        return (
+        complete = (
             oldest_synced_at <= start
             and newest_synced_at >= end
         )
+
+        status = "COMPLETE" if complete else "INCOMPLETE"
+        print(
+            f"[Cache] sync -> {status}: channel_id={channel_id} "
+            f"cached={oldest_synced_at}..{newest_synced_at} "
+            f"requested={start}..{end}"
+        )
+        return complete
+
 
     def refresh_channel_videos(
         self,
@@ -325,6 +379,11 @@ class YouTubeAPI:
         end_date,
         max_results=50,
     ):
+        print(
+            f"[YouTubeAPI] refresh_channel_videos: channel_id={channel_id} "
+            f"start={start_date} end={end_date}"
+        )
+
         start = to_utc_z(start_date)
         end = to_utc_z(end_date)
 
@@ -333,11 +392,16 @@ class YouTubeAPI:
         )
 
         if not playlist_id:
+            print("[Result] refresh -> FAILED: uploads_playlist_id not found")
             return False
 
         next_page_token = None
+        page = 0
+        api_items = 0
+        saved_items = 0
 
         while True:
+            page += 1
             response = self.get_playlist_videos(
                 playlist_id,
                 max_results=max_results,
@@ -345,6 +409,10 @@ class YouTubeAPI:
             )
 
             items = response.get("items", [])
+            api_items += len(items)
+            print(
+                f"[API] playlistItems.list: page={page} items={len(items)}"
+            )
 
             if not items:
                 break
@@ -366,6 +434,7 @@ class YouTubeAPI:
                 if published_at >= start:
                     if published_at < end:
                         self.db.insert_video(video)
+                        saved_items += 1
 
                 if published_at < start:
                     reached_start = True
@@ -380,15 +449,23 @@ class YouTubeAPI:
             if not next_page_token:
                 break
 
-        # ここまで正常終了した場合だけ同期状態を更新する
         self.db.set_channel_sync_state(
             channel_id,
             uploads_playlist_id=playlist_id,
             oldest_synced_at=start,
             newest_synced_at=end,
         )
+        print(
+            f"[DB] sync_state -> UPDATE: channel_id={channel_id} "
+            f"range={start}..{end}"
+        )
+        print(
+            f"[Result] refresh -> COMPLETE: pages={page} "
+            f"api_items={api_items} saved={saved_items}"
+        )
 
         return True
+
 
     def sync_channel_videos(
         self,
@@ -397,6 +474,11 @@ class YouTubeAPI:
         end_date,
         max_results=50,
     ):
+        print(
+            f"[YouTubeAPI] sync_channel_videos: channel_id={channel_id} "
+            f"start={start_date} end={end_date}"
+        )
+
         start = to_utc_z(start_date)
         end = to_utc_z(end_date)
 
@@ -405,19 +487,28 @@ class YouTubeAPI:
             start,
             end,
         ):
+            print("[Sync] not required: cache is complete")
+            print("[Result] sync -> CACHE")
             return True
+
+        print("[Sync] required")
 
         playlist_id = self.get_channel_uploads_playlist_id(
             channel_id
         )
 
         if not playlist_id:
+            print("[Result] sync -> FAILED: uploads_playlist_id not found")
             return False
 
         next_page_token = None
         oldest_published_at = None
+        page = 0
+        api_items = 0
+        saved_items = 0
 
         while True:
+            page += 1
             response = self.get_playlist_videos(
                 playlist_id,
                 max_results=max_results,
@@ -425,6 +516,10 @@ class YouTubeAPI:
             )
 
             items = response.get("items", [])
+            api_items += len(items)
+            print(
+                f"[API] playlistItems.list: page={page} items={len(items)}"
+            )
 
             for item in items:
                 video = video_from_playlist_item(item)
@@ -441,6 +536,7 @@ class YouTubeAPI:
                 if published_at >= start:
                     if published_at < end:
                         self.db.insert_video(video)
+                        saved_items += 1
 
                 oldest_published_at = published_at
 
@@ -465,8 +561,17 @@ class YouTubeAPI:
             uploads_playlist_id=playlist_id,
             newest_synced_at=end,
         )
+        print(
+            f"[DB] sync_state -> UPDATE: channel_id={channel_id} "
+            f"newest_synced_at={end}"
+        )
+        print(
+            f"[Result] sync -> COMPLETE: pages={page} "
+            f"api_items={api_items} saved={saved_items}"
+        )
 
         return True
+
 
     def get_channel_videos_with_cache(
         self,
@@ -474,25 +579,43 @@ class YouTubeAPI:
         start_date,
         end_date,
     ):
+        print(
+            f"[YouTubeAPI] get_channel_videos_with_cache: "
+            f"channel_id={channel_id} start={start_date} end={end_date}"
+        )
+
         start = to_utc_z(start_date)
         end = to_utc_z(end_date)
 
-        if not self.is_channel_sync_complete(
-            channel_id,
-            start,
-            end,
-        ):
-            self.sync_channel_videos(
-                channel_id,
-                start,
-                end,
-            )
-
-        return self.db.get_videos_by_channel_and_date(
+        sync_complete = self.is_channel_sync_complete(
             channel_id,
             start,
             end,
         )
+
+        if not sync_complete:
+            print("[Sync] required")
+            sync_success = self.sync_channel_videos(
+                channel_id,
+                start,
+                end,
+            )
+            if not sync_success:
+                print("[Sync] failed")
+        else:
+            print("[Sync] not required: cache is complete")
+
+        videos = self.db.get_videos_by_channel_and_date(
+            channel_id,
+            start,
+            end,
+        )
+
+        print(
+            f"[Result] source=DB videos={len(videos)}"
+        )
+        return videos
+
 
     # ========================================================
     # Playlist
@@ -519,6 +642,7 @@ class YouTubeAPI:
             **params,
         )
 
+
     def get_playlist_items(
         self,
         playlist_id,
@@ -540,22 +664,38 @@ class YouTubeAPI:
             **params,
         )
 
+
     def fetch_and_save_videos_from_playlist(
         self,
         playlist_id,
         channel_id,
         max_results=50,
     ):
+        print(
+            f"[YouTubeAPI] fetch_and_save_videos_from_playlist: "
+            f"playlist_id={playlist_id} channel_id={channel_id}"
+        )
+
         next_page_token = None
+        page = 0
+        api_items = 0
+        saved_items = 0
 
         while True:
+            page += 1
             response = self.get_playlist_videos(
                 playlist_id,
                 max_results=max_results,
                 page_token=next_page_token,
             )
 
-            for item in response.get("items", []):
+            items = response.get("items", [])
+            api_items += len(items)
+            print(
+                f"[API] playlistItems.list: page={page} items={len(items)}"
+            )
+
+            for item in items:
                 video = video_from_playlist_item(item)
 
                 if not video["video_id"]:
@@ -565,6 +705,7 @@ class YouTubeAPI:
                     video["channel_id"] = channel_id
 
                 self.db.insert_video(video)
+                saved_items += 1
 
             next_page_token = response.get(
                 "nextPageToken"
@@ -572,6 +713,12 @@ class YouTubeAPI:
 
             if not next_page_token:
                 break
+
+        print(
+            f"[Result] videos saved={saved_items} api_items={api_items} "
+            f"pages={page}"
+        )
+
 
     # ========================================================
     # Search
@@ -617,11 +764,26 @@ class YouTubeAPI:
         if page_token is not None:
             params["pageToken"] = page_token
 
-        return self.client.call(
+        print(
+            "[YouTubeAPI] search_videos: "
+            f"query={query} channel_id={channel_id} "
+            f"published_after={params.get('publishedAfter')} "
+            f"published_before={params.get('publishedBefore')} "
+            f"event_type={event_type}"
+        )
+        print(
+            f"[API] search.list: max_results={max_results} order={order}"
+        )
+        response = self.client.call(
             "search",
             "list",
             **params,
         )
+        print(
+            f"[Result] search items={len(response.get('items', []))}"
+        )
+        return response
+
 
     def fetch_and_save_videos_from_channel(
         self,
@@ -631,17 +793,29 @@ class YouTubeAPI:
         max_results=50,
         get_duration=False,
     ):
+        print(
+            f"[YouTubeAPI] fetch_and_save_videos_from_channel: "
+            f"channel_id={channel_id} get_duration={get_duration}"
+        )
+
         channel_info = self.get_channel_with_cache(
             channel_id
         )
 
         if not channel_info:
-            print(f"Channel {channel_id} not found")
+            print(f"[Result] channel -> NOT_FOUND: channel_id={channel_id}")
             return
 
         next_page_token = None
+        page = 0
+        api_items = 0
+        saved_items = 0
 
         while True:
+            page += 1
+            print(
+                f"[API] search.list: page={page} channel_id={channel_id}"
+            )
             response = self.client.call(
                 "search",
                 "list",
@@ -655,16 +829,23 @@ class YouTubeAPI:
                 type="video",
             )
 
+            items = response.get("items", [])
+            api_items += len(items)
             video_ids = []
 
-            for item in response.get("items", []):
+            for item in items:
                 video = video_from_search_item(
                     item,
                     channel_id,
                 )
 
                 self.db.insert_video(video)
+                saved_items += 1
                 video_ids.append(video["video_id"])
+
+            print(
+                f"[DB] videos -> INSERT/UPSERT: count={len(video_ids)}"
+            )
 
             if get_duration and video_ids:
                 self.fetch_and_update_video_details(
@@ -678,6 +859,12 @@ class YouTubeAPI:
             if not next_page_token:
                 break
 
+        print(
+            f"[Result] videos saved={saved_items} api_items={api_items} "
+            f"pages={page}"
+        )
+
+
     # ========================================================
     # Video details
     # ========================================================
@@ -687,6 +874,9 @@ class YouTubeAPI:
         video_id,
         part="snippet,contentDetails",
     ):
+        print(
+            f"[API] videos.list: video_id={video_id} part={part}"
+        )
         response = self.client.call(
             "videos",
             "list",
@@ -697,21 +887,33 @@ class YouTubeAPI:
         items = response.get("items", [])
 
         if not items:
+            print("[Result] video_details -> NOT_FOUND")
             return None
 
+        print("[Result] video_details -> FOUND")
         return items[0]
+
 
     def get_video_details_with_cache(
         self,
         video_id,
         part="snippet,contentDetails",
     ):
+        print(
+            f"[YouTubeAPI] get_video_details_with_cache: video_id={video_id}"
+        )
+        print(
+            "[Cache] video_details -> NOT_CHECKED "
+            "(current implementation fetches from API)"
+        )
+
         item = self.get_video_details(
             video_id,
             part=part,
         )
 
         if item is None:
+            print("[Result] source=API result=NOT_FOUND")
             return None
 
         snippet = item.get("snippet", {})
@@ -719,26 +921,45 @@ class YouTubeAPI:
         channel_title = snippet.get("channelTitle")
 
         if not channel_id or not channel_title:
+            print("[Result] source=API db_update=SKIPPED")
             return item
 
         self.db.insert_channel(
             channel_id,
             channel_title,
         )
+        print(f"[DB] channel -> INSERT/IGNORE: channel_id={channel_id}")
 
         video = video_from_api_item(item)
         self.db.upsert_video(video)
+        print(f"[DB] video -> UPSERT: video_id={video_id}")
 
+        print("[Result] source=API db_update=COMPLETE")
         return item
 
+
     def fetch_and_update_video_details(self, video_ids):
-        for batch_ids in _chunks(video_ids, 50):
+        print(
+            f"[YouTubeAPI] fetch_and_update_video_details: videos={len(video_ids)}"
+        )
+
+        updated = 0
+
+        for batch_no, batch_ids in enumerate(
+            _chunks(video_ids, 50),
+            start=1,
+        ):
+            print(
+                f"[API] videos.list: batch={batch_no} count={len(batch_ids)}"
+            )
             response = self.client.call(
                 "videos",
                 "list",
                 part="contentDetails",
                 id=",".join(batch_ids),
             )
+
+            batch_updated = 0
 
             for item in response.get("items", []):
                 vid = item["id"]
@@ -751,6 +972,15 @@ class YouTubeAPI:
                     vid,
                     duration_sec,
                 )
+                batch_updated += 1
+                updated += 1
+
+            print(
+                f"[DB] video duration -> UPDATE: count={batch_updated}"
+            )
+
+        print(f"[Result] duration updated={updated}")
+
 
     # ========================================================
     # Live streaming
@@ -781,8 +1011,15 @@ class YouTubeAPI:
         video_ids,
         now=None,
     ):
+        print(
+            f"[YouTubeAPI] get_live_streaming_video_ids: videos={len(video_ids)}"
+        )
+
         live_video_ids = set()
         uncached_video_ids = []
+        cache_hit = 0
+        cache_expired = 0
+        cache_missing = 0
 
         if now is None:
             now = datetime.now(timezone.utc)
@@ -792,23 +1029,45 @@ class YouTubeAPI:
                 video_id
             )
 
+            if state is None:
+                cache_missing += 1
+                uncached_video_ids.append(video_id)
+                continue
+
             if not self.is_live_state_cache_valid(
                 state,
                 now=now,
             ):
+                cache_expired += 1
                 uncached_video_ids.append(video_id)
                 continue
+
+            cache_hit += 1
 
             if state["is_live"]:
                 live_video_ids.add(video_id)
 
-        for batch_ids in _chunks(
-            uncached_video_ids,
-            50,
+        print(
+            f"[Cache] live_state: HIT={cache_hit} "
+            f"EXPIRED={cache_expired} NOT_FOUND={cache_missing}"
+        )
+
+        api_batches = 0
+        api_items = 0
+        db_updated = 0
+
+        for batch_no, batch_ids in enumerate(
+            _chunks(uncached_video_ids, 50),
+            start=1,
         ):
             if not batch_ids:
                 continue
 
+            api_batches += 1
+            print(
+                f"[API] videos.list: batch={batch_no} "
+                f"count={len(batch_ids)} part=liveStreamingDetails"
+            )
             response = self.client.call(
                 "videos",
                 "list",
@@ -825,6 +1084,7 @@ class YouTubeAPI:
             for item in response.get("items", []):
                 video_id = item["id"]
                 returned_video_ids.add(video_id)
+                api_items += 1
 
                 is_live = "liveStreamingDetails" in item
 
@@ -833,6 +1093,7 @@ class YouTubeAPI:
                     is_live,
                     checked_at,
                 )
+                db_updated += 1
 
                 if is_live:
                     live_video_ids.add(video_id)
@@ -844,5 +1105,14 @@ class YouTubeAPI:
                         False,
                         checked_at,
                     )
+                    db_updated += 1
+
+        print(
+            f"[DB] live_state -> UPDATE: count={db_updated}"
+        )
+        print(
+            f"[Result] live={len(live_video_ids)} "
+            f"cache_hits={cache_hit} api_batches={api_batches} api_items={api_items}"
+        )
 
         return live_video_ids
