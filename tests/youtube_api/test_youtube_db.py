@@ -671,85 +671,101 @@ def test_channel_sync_state_preserves_existing_values(tmp_path):
         "2026-10-02T00:00:00Z",
     )
 
-def test_set_and_get_video_live_state(tmp_path):
-    db = YouTubeDB(tmp_path / "youtube.db")
 
-    db.insert_channel(
-        "channel1",
-        "Test Channel",
-    )
 
-    db.insert_video(
-        {
-            "video_id": "video1",
-            "title": "Test Video",
-            "channel_id": "channel1",
-            "published_at": "2026-10-01T00:00:00Z",
-            "duration": 100,
-            "thumbnail_default": None,
-            "thumbnail_medium": None,
-            "thumbnail_high": None,
-        }
-    )
+def test_set_and_get_video_broadcast_state(tmp_path):
+    db = create_db(tmp_path)
+    create_channel(db)
+    create_video(db, video_id="video1")
 
-    db.set_video_live_state(
+    db.set_video_broadcast_state(
         "video1",
         True,
         "2026-10-03T05:00:00Z",
     )
 
-    result = db.get_video_live_state("video1")
-
-    assert result == {
+    assert db.get_video_broadcast_state("video1") == {
         "video_id": "video1",
-        "is_live": True,
+        "is_live_broadcast": True,
         "checked_at": "2026-10-03T05:00:00Z",
     }
 
-def test_set_video_live_state_updates_existing_state(tmp_path):
-    db = YouTubeDB(tmp_path / "youtube.db")
 
-    db.insert_channel(
-        "channel1",
-        "Test Channel",
-    )
+def test_set_video_broadcast_state_updates_existing_state(tmp_path):
+    db = create_db(tmp_path)
+    create_channel(db)
+    create_video(db, video_id="video1")
 
-    db.insert_video(
-        {
-            "video_id": "video1",
-            "title": "Test Video",
-            "channel_id": "channel1",
-            "published_at": "2026-10-01T00:00:00Z",
-            "duration": 100,
-            "thumbnail_default": None,
-            "thumbnail_medium": None,
-            "thumbnail_high": None,
-        }
-    )
-
-    db.set_video_live_state(
+    db.set_video_broadcast_state(
         "video1",
         True,
         "2026-10-03T05:00:00Z",
     )
-
-    db.set_video_live_state(
+    db.set_video_broadcast_state(
         "video1",
         False,
         "2026-10-03T06:00:00Z",
     )
 
-    result = db.get_video_live_state("video1")
-
-    assert result == {
+    assert db.get_video_broadcast_state("video1") == {
         "video_id": "video1",
-        "is_live": False,
+        "is_live_broadcast": False,
         "checked_at": "2026-10-03T06:00:00Z",
     }
 
-def test_get_video_live_state_returns_none_for_unknown_video(
-    tmp_path,
-):
-    db = YouTubeDB(tmp_path / "youtube.db")
 
-    assert db.get_video_live_state("unknown") is None
+def test_get_video_broadcast_state_returns_none_for_unknown_video(tmp_path):
+    db = create_db(tmp_path)
+
+    assert db.get_video_broadcast_state("unknown") is None
+
+
+def test_db_initialization_migrates_video_live_state_table(tmp_path):
+    db_path = tmp_path / "youtube.db"
+    db = YouTubeDB(db_path)
+    create_channel(db)
+    create_video(db, video_id="video1")
+
+    # 旧テーブルが残っているDBを再現する。
+    with db._connect() as conn:
+        conn.execute("DROP TABLE video_broadcast_state")
+        conn.execute(
+            """
+            CREATE TABLE video_live_state (
+                video_id TEXT PRIMARY KEY,
+                is_live INTEGER NOT NULL,
+                checked_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO video_live_state (
+                video_id, is_live, checked_at
+            )
+            VALUES (?, ?, ?)
+            """,
+            ("video1", 1, "2026-10-03T05:00:00Z"),
+        )
+
+    migrated_db = YouTubeDB(db_path)
+
+    assert migrated_db.get_video_broadcast_state("video1") == {
+        "video_id": "video1",
+        "is_live_broadcast": True,
+        "checked_at": "2026-10-03T05:00:00Z",
+    }
+
+    with migrated_db._connect() as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table'
+                """
+            ).fetchall()
+        }
+
+    assert "video_broadcast_state" in tables
+    assert "video_live_state" not in tables

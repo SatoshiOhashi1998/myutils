@@ -1,3 +1,4 @@
+
 import csv
 import json
 import os
@@ -86,14 +87,14 @@ class YouTubeDB:
         )
 
         # --------------------------------------------------------
-        # Video live state
+        # Video broadcast classification
         # --------------------------------------------------------
 
         cursor.execute(
             """
-            CREATE TABLE IF NOT EXISTS video_live_state (
+            CREATE TABLE IF NOT EXISTS video_broadcast_state (
                 video_id TEXT PRIMARY KEY,
-                is_live INTEGER NOT NULL,
+                is_live_broadcast INTEGER NOT NULL,
                 checked_at TEXT NOT NULL,
                 FOREIGN KEY (video_id)
                     REFERENCES videos(video_id)
@@ -101,6 +102,25 @@ class YouTubeDB:
             );
             """
         )
+
+        # 旧テーブルのキャッシュを新しい分類テーブルへ一度だけ移行する。
+        old_table = cursor.execute(
+            """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND name = 'video_live_state'
+            """
+        ).fetchone()
+        if old_table:
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO video_broadcast_state (
+                    video_id, is_live_broadcast, checked_at
+                )
+                SELECT video_id, is_live, checked_at
+                FROM video_live_state
+                """
+            )
+            cursor.execute("DROP TABLE video_live_state")
 
         # --------------------------------------------------------
         # Indexes
@@ -335,45 +355,38 @@ class YouTubeDB:
             )
 
     # ============================================================
-    # Video live state
+    # Video broadcast classification
     # ============================================================
 
-    def set_video_live_state(
+    def set_video_broadcast_state(
         self,
         video_id,
-        is_live,
+        is_live_broadcast,
         checked_at,
     ):
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO video_live_state (
+                INSERT INTO video_broadcast_state (
                     video_id,
-                    is_live,
+                    is_live_broadcast,
                     checked_at
                 )
                 VALUES (?, ?, ?)
                 ON CONFLICT(video_id)
                 DO UPDATE SET
-                    is_live = excluded.is_live,
+                    is_live_broadcast = excluded.is_live_broadcast,
                     checked_at = excluded.checked_at
                 """,
-                (
-                    video_id,
-                    int(is_live),
-                    checked_at,
-                ),
+                (video_id, int(is_live_broadcast), checked_at),
             )
 
-    def get_video_live_state(self, video_id):
+    def get_video_broadcast_state(self, video_id):
         with self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT
-                    video_id,
-                    is_live,
-                    checked_at
-                FROM video_live_state
+                SELECT video_id, is_live_broadcast, checked_at
+                FROM video_broadcast_state
                 WHERE video_id = ?
                 """,
                 (video_id,),
@@ -384,7 +397,7 @@ class YouTubeDB:
 
         return {
             "video_id": row[0],
-            "is_live": bool(row[1]),
+            "is_live_broadcast": bool(row[1]),
             "checked_at": row[2],
         }
 

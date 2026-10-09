@@ -1,3 +1,4 @@
+
 # fetch_youtube_data.py
 # ---------------------------------------------
 # YouTube Data API
@@ -18,7 +19,6 @@ from .converters import (
 # Constants / Utility
 # ============================================================
 
-LIVE_STATE_TTL = timedelta(hours=3)
 UTC = timezone.utc
 
 
@@ -983,86 +983,47 @@ class YouTubeAPI:
 
 
     # ========================================================
-    # Live streaming
+    # Live broadcast classification
     # ========================================================
 
-    def is_live_state_cache_valid(
-        self,
-        state,
-        now=None,
-    ):
-        if state is None:
-            return False
-
-        if now is None:
-            now = datetime.now(timezone.utc)
-
-        checked_at = datetime.fromisoformat(
-            state["checked_at"].replace(
-                "Z",
-                "+00:00",
-            )
-        )
-
-        return now - checked_at < LIVE_STATE_TTL
-
-    def get_live_streaming_video_ids(
-        self,
-        video_ids,
-        now=None,
-    ):
+    def get_live_broadcast_video_ids(self, video_ids):
+        """過去にライブ配信された動画IDを返す。判定結果はDBに長期保存する。"""
+        video_ids = list(dict.fromkeys(video_ids))
         print(
-            f"[YouTubeAPI] get_live_streaming_video_ids: videos={len(video_ids)}"
+            f"[YouTubeAPI] get_live_broadcast_video_ids: videos={len(video_ids)}"
         )
 
-        live_video_ids = set()
+        live_broadcast_video_ids = set()
         uncached_video_ids = []
-        cache_hit = 0
-        cache_expired = 0
-        cache_missing = 0
-
-        if now is None:
-            now = datetime.now(timezone.utc)
+        cache_hits = 0
 
         for video_id in video_ids:
-            state = self.db.get_video_live_state(
-                video_id
-            )
-
+            state = self.db.get_video_broadcast_state(video_id)
             if state is None:
-                cache_missing += 1
                 uncached_video_ids.append(video_id)
                 continue
 
-            if not self.is_live_state_cache_valid(
-                state,
-                now=now,
-            ):
-                cache_expired += 1
-                uncached_video_ids.append(video_id)
-                continue
-
-            cache_hit += 1
-
-            if state["is_live"]:
-                live_video_ids.add(video_id)
+            cache_hits += 1
+            if state["is_live_broadcast"]:
+                live_broadcast_video_ids.add(video_id)
 
         print(
-            f"[Cache] live_state: HIT={cache_hit} "
-            f"EXPIRED={cache_expired} NOT_FOUND={cache_missing}"
+            f"[Cache] broadcast_state: HIT={cache_hits} "
+            f"NOT_FOUND={len(uncached_video_ids)}"
         )
 
         api_batches = 0
         api_items = 0
         db_updated = 0
+        not_returned = 0
+        checked_at = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
 
         for batch_no, batch_ids in enumerate(
             _chunks(uncached_video_ids, 50),
             start=1,
         ):
-            if not batch_ids:
-                continue
-
             api_batches += 1
             print(
                 f"[API] videos.list: batch={batch_no} "
@@ -1075,44 +1036,36 @@ class YouTubeAPI:
                 id=",".join(batch_ids),
             )
 
-            checked_at = now.strftime(
-                "%Y-%m-%dT%H:%M:%SZ"
-            )
-
             returned_video_ids = set()
-
             for item in response.get("items", []):
                 video_id = item["id"]
                 returned_video_ids.add(video_id)
                 api_items += 1
 
-                is_live = "liveStreamingDetails" in item
-
-                self.db.set_video_live_state(
+                is_live_broadcast = "liveStreamingDetails" in item
+                self.db.set_video_broadcast_state(
                     video_id,
-                    is_live,
+                    is_live_broadcast,
                     checked_at,
                 )
                 db_updated += 1
 
-                if is_live:
-                    live_video_ids.add(video_id)
+                if is_live_broadcast:
+                    live_broadcast_video_ids.add(video_id)
 
-            for video_id in batch_ids:
-                if video_id not in returned_video_ids:
-                    self.db.set_video_live_state(
-                        video_id,
-                        False,
-                        checked_at,
-                    )
-                    db_updated += 1
+            # API応答に含まれない動画は、配信ではないと断定できないため保存しない。
+            missing_ids = set(batch_ids) - returned_video_ids
+            not_returned += len(missing_ids)
+            if missing_ids:
+                print(
+                    f"[API] videos.list: NOT_RETURNED={len(missing_ids)} "
+                    "(not cached)"
+                )
 
+        print(f"[DB] broadcast_state -> UPDATE: count={db_updated}")
         print(
-            f"[DB] live_state -> UPDATE: count={db_updated}"
+            f"[Result] live_broadcast={len(live_broadcast_video_ids)} "
+            f"cache_hits={cache_hits} api_batches={api_batches} "
+            f"api_items={api_items} not_returned={not_returned}"
         )
-        print(
-            f"[Result] live={len(live_video_ids)} "
-            f"cache_hits={cache_hit} api_batches={api_batches} api_items={api_items}"
-        )
-
-        return live_video_ids
+        return live_broadcast_video_ids
